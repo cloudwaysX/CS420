@@ -44,7 +44,7 @@ CONTROL_STATE controlState = ROTATE;
 
 //three rendering types
 typedef enum {POINT, LINE, TRIANGLE} RENDER_STATE;
-RENDER_STATE renderState = POINT;
+RENDER_STATE renderState = TRIANGLE;
 
 // state of the world
 float landRotate[3] = { 0.0f, 0.0f, 0.0f };
@@ -59,12 +59,18 @@ ImageIO * heightmapImage;
 //global variables
 OpenGLMatrix *openGLMatrix = new OpenGLMatrix();
 GLuint ebo_triangle=0;
+GLuint ebo_line=0;
 GLuint vbo=0;
 BasicPipelineProgram *pipelineProgram = new BasicPipelineProgram();
 GLint program;
-GLuint vao=0;
+GLuint vao_point=0;
+GLuint vao_lines=0;
+GLuint vao_triangle=0;
 int numOfVertices =0;
 int numOfStripPoint = 0;
+int numOfLines=0;
+GLfloat *positions;
+GLfloat *colors;
 
 //Set some constent parameter
 const float fovy = 60;//the view angle is 45 degrees
@@ -97,16 +103,19 @@ void renderHeightField()
 	{
 		//render the heightfield as points
 		case POINT:
+			glBindVertexArray(vao_point);
     		glDrawArrays(GL_POINTS,0,numOfVertices);
 		break;
 
 		//render the heightfield as lines
 		case LINE:
-    		glDrawArrays(GL_LINES_ADJACENCY,0,numOfVertices);
+			glBindVertexArray(vao_lines);
+    		glDrawElements(GL_LINES,numOfLines*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
 		break;
 
 		//render the heightfield as solid triangles
 		case TRIANGLE:
+			glBindVertexArray(vao_triangle);
    	 		glDrawElements(GL_TRIANGLE_STRIP,numOfStripPoint,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
 		break;
 	}
@@ -133,7 +142,6 @@ void displayFunc()
 	//render some stuff
 	//bind the pipleline program
   	pipelineProgram->Bind();
-  	glBindVertexArray(vao);
 
 
  	 //clear the Window
@@ -161,11 +169,11 @@ void idleFunc()
 
 void reshapeFunc(int w, int h)
 {
-	glViewport(0, 0, w, h);
+	glViewport(0, -128, w, h);
 	// setup perspective matrix...
 	openGLMatrix->SetMatrixMode(OpenGLMatrix::Projection);
 	openGLMatrix->LoadIdentity();
-	openGLMatrix->Perspective(fovy,aspect,0.01,10.0);
+	openGLMatrix->Perspective(fovy,aspect,0.01f,100.0f);
   //openGLMatrix->Ortho(0,0,0,0,0.01,10.0);
 	float m_perspective[16];
 	openGLMatrix->GetMatrix(m_perspective);
@@ -322,6 +330,152 @@ void keyboardFunc(unsigned char key, int x, int y)
   }
 }
 
+void GenPointMap(int height, int width){
+	//create VAO
+	glGenVertexArrays(1,&vao_point);
+  	glBindVertexArray(vao_point);
+
+  	//generate and bind the VBO "buffer" for positions and color
+  	glGenBuffers(1,&vbo); 
+  	glBindBuffer(GL_ARRAY_BUFFER,vbo);
+  	glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+ 	glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
+  	glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
+
+  	//get location index of the "position"shader variable
+  	GLuint loc=glGetAttribLocation(program,"position");
+  	glEnableVertexAttribArray(loc);//enable "position attribe"
+  	GLsizei stride=0;
+ 	GLboolean normalized=GL_FALSE;
+  	//set the layout of the "position" attribute data
+  	glVertexAttribPointer(loc,3,GL_FLOAT,normalized,stride,BUFFER_OFFSET(0));
+
+ 	//get location index of the "color"shader variable
+ 	GLuint loc2=glGetAttribLocation(program,"color");
+ 	glEnableVertexAttribArray(loc2);//enable "position attribe"
+  	//set the layout of the "color" attribute data
+  	glVertexAttribPointer(loc2,4,GL_FLOAT,normalized,stride,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
+
+  	glBindVertexArray(0); //unbind the VAO 
+
+}
+
+void GenLineMap(int height, int width){
+	//create VAO
+	glGenVertexArrays(1,&vao_lines);
+	glBindVertexArray(vao_lines);
+
+	//assign the indices information for element draw of triangle
+  	int count=0;
+  	GLuint *indices_line= new GLuint[numOfLines];
+  	for(int i=0;i<height-1;i++){
+    	for(int j=0;j<width;j++){
+      	indices_line[count]=i*width+j;
+      	indices_line[count+1]=i*width+j+1;
+      	indices_line[count+2]=i*width+j+1;
+      	indices_line[count+3]=i*width+j+width;
+      	indices_line[count+4]=i*width+j+width;
+      	indices_line[count+5]=i*width+j;
+      	count=count+5;
+    	}
+ 	}
+ 	for(int i=0;i<height-1;i++){
+ 		indices_line[count]=i*width+width-1;
+ 		indices_line[count+1]=i*width+2*width-1;
+ 		count=count+2;
+
+ 	}
+
+ 	for(int j=0;j<width-1;j++){
+ 		indices_line[count]=(height-2)*width+j;
+ 		indices_line[count+1]=(height-2)*width+j+1;
+
+ 		count=count+2;
+ 	}
+  	//generate and bind the EBO buffer for indices
+  	glGenBuffers(1,&ebo_line);
+  	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_triangle);
+ 	glBufferData(GL_ARRAY_BUFFER,numOfStripPoint*sizeof(GLuint),indices_line,GL_STATIC_DRAW);
+
+
+	//generate and bind the VBO "buffer" for positions and color
+  	glGenBuffers(1,&vbo); 
+  	glBindBuffer(GL_ARRAY_BUFFER,vbo);
+  	glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+ 	glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
+  	glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
+
+  	//get location index of the "position"shader variable
+  	GLuint loc=glGetAttribLocation(program,"position");
+  	glEnableVertexAttribArray(loc);//enable "position attribe"
+  	GLsizei stride=0;
+ 	GLboolean normalized=GL_FALSE;
+  	//set the layout of the "position" attribute data
+  	glVertexAttribPointer(loc,3,GL_FLOAT,normalized,stride,BUFFER_OFFSET(0));
+
+ 	//get location index of the "color"shader variable
+ 	GLuint loc2=glGetAttribLocation(program,"color");
+ 	glEnableVertexAttribArray(loc2);//enable "position attribe"
+  	//set the layout of the "color" attribute data
+  	glVertexAttribPointer(loc2,4,GL_FLOAT,normalized,stride,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
+
+
+  	glBindVertexArray(0); //unbind the VAO 
+
+}
+
+void GenTriangleMap(int height, int width) {
+
+	//create VAO
+	glGenVertexArrays(1,&vao_triangle);
+	glBindVertexArray(vao_triangle);
+
+	//assign the indices information for element draw of triangle
+  	int count=0;
+  	GLuint *indices_triangle= new GLuint[numOfStripPoint];
+  	for(int i=0;i<height-1;i++){
+    	for(int j=0;j<width;j++){
+      	indices_triangle[count]=i*width+j;
+      	indices_triangle[count+1]=i*width+j+width;
+     	count=count+2;
+    	}
+ 	}
+
+ 	//Connect VBO to VAO
+  	//generate and bind the EBO buffer for indices
+  	glGenBuffers(1,&ebo_triangle);
+  	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_triangle);
+ 	glBufferData(GL_ARRAY_BUFFER,numOfStripPoint*sizeof(GLuint),indices_triangle,GL_STATIC_DRAW);
+
+ 	//generate and bind the VBO "buffer" for positions and color
+  	glGenBuffers(1,&vbo); 
+  	glBindBuffer(GL_ARRAY_BUFFER,vbo);
+  	glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+ 	glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
+  	glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
+
+  	//get location index of the "position"shader variable
+  	GLuint loc=glGetAttribLocation(program,"position");
+  	glEnableVertexAttribArray(loc);//enable "position attribe"
+  	GLsizei stride=0;
+ 	GLboolean normalized=GL_FALSE;
+  	//set the layout of the "position" attribute data
+  	glVertexAttribPointer(loc,3,GL_FLOAT,normalized,stride,BUFFER_OFFSET(0));
+
+ 	//get location index of the "color"shader variable
+ 	GLuint loc2=glGetAttribLocation(program,"color");
+ 	glEnableVertexAttribArray(loc2);//enable "position attribe"
+  	//set the layout of the "color" attribute data
+  	glVertexAttribPointer(loc2,4,GL_FLOAT,normalized,stride,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
+
+  	glBindVertexArray(0); //unbind the VAO 
+
+
+
+}
+
+
+
 void initScene(int argc, char *argv[]){
 
   // do additional initialization here...
@@ -341,18 +495,15 @@ void initScene(int argc, char *argv[]){
   int width = heightmapImage-> getWidth();
   numOfVertices =height*width;
   numOfStripPoint = height*width*2-width*2;
+  numOfLines=(height-1)*(width-1)*3+(width-1)+(height-1);
   cout<<"There is "<<numOfStripPoint<<" strip points and "<<numOfVertices<<" of positions"<<endl;
 
   int count=0;
   int normalizeParameter=(height+width)/2/256; //set depth in the similar scale as width and height
 
-  //create VAO
-  glGenVertexArrays(1,&vao);
-  glBindVertexArray(vao);
-
   //Load the positions information and color information from image
-  GLfloat *positions=new GLfloat[numOfVertices*3];
-  GLfloat *colors=new GLfloat[numOfVertices*4];
+  positions=new GLfloat[numOfVertices*3];
+  colors=new GLfloat[numOfVertices*4];
   for(int x=-height/2;x<height/2;x++){
     for(int y=-width/2;y<width/2;y++){
       // assign the position value for each positions
@@ -372,32 +523,10 @@ void initScene(int argc, char *argv[]){
       count++;
     }
   }
-  //assign the indices information for element draw of triangle
-  int count2=0;
-  GLuint *indices_triangle= new GLuint[numOfStripPoint];
-  for(int i=0;i<height-1;i++){
-    for(int j=0;j<width;j++){
-      indices_triangle[count2]=i*width+j;
-      indices_triangle[count2+1]=i*width+j+width;
-      count2=count2+2;
-    }
-  }
-
-  cout<<"Now successfully load all positions and indices information"<<endl;
-
-  //Connect VBO to VAO
-  //generate and bind the EBO buffer for indices
-  glGenBuffers(1,&ebo_triangle);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_triangle);
-  glBufferData(GL_ARRAY_BUFFER,numOfStripPoint*sizeof(GLuint),indices_triangle,GL_STATIC_DRAW);
 
 
-  //generate and bind the VBO "buffer" for positions
-  glGenBuffers(1,&vbo);
-  glBindBuffer(GL_ARRAY_BUFFER,vbo);
-  glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
-  glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
-  glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
+  //cout<<"Now successfully load all positions and indices information"<<endl;
+
 
   //initilize the pipeline program
   if(pipelineProgram->Init(shaderBasePath)!=0){
@@ -418,23 +547,11 @@ void initScene(int argc, char *argv[]){
   //activate the program
   glUseProgram(program);   
 
-   //get location index of the "position"shader variable
-  GLuint loc=glGetAttribLocation(program,"position");
-  glEnableVertexAttribArray(loc);//enable "position attribe"
-  GLsizei stride=0;
-  GLboolean normalized=GL_FALSE;
-  //set the layout of the "position" attribute data
-  glVertexAttribPointer(loc,3,GL_FLOAT,normalized,stride,BUFFER_OFFSET(0));
+  //cout<<"Now successfully set layout of the position and color attribute data"<<endl;
 
-  //get location index of the "color"shader variable
-  GLuint loc2=glGetAttribLocation(program,"color");
-  glEnableVertexAttribArray(loc2);//enable "position attribe"
-  //set the layout of the "color" attribute data
-  glVertexAttribPointer(loc2,4,GL_FLOAT,normalized,stride,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
-
-  cout<<"Now successfully set layout of the position and color attribute data"<<endl;
-
-  glBindVertexArray(0); //unbind the VAO   
+  GenPointMap(height,width);
+  GenLineMap(height,width);
+  GenTriangleMap(height,width);
 
 }
 
