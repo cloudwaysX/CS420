@@ -367,7 +367,7 @@ void GenLineMap(int height, int width){
 
 	//assign the indices information for element draw of triangle
   	int count=0;
-  	GLuint *indices_line= new GLuint[numOfLines];
+  	GLuint *indices_line= new GLuint[numOfLines*2];
   	for(int i=0;i<height-1;i++){
     	for(int j=0;j<width;j++){
       	indices_line[count]=i*width+j;
@@ -394,8 +394,8 @@ void GenLineMap(int height, int width){
  	}
   	//generate and bind the EBO buffer for indices
   	glGenBuffers(1,&ebo_line);
-  	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_triangle);
- 	glBufferData(GL_ARRAY_BUFFER,numOfStripPoint*sizeof(GLuint),indices_line,GL_STATIC_DRAW);
+  	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_line);
+ 	glBufferData(GL_ARRAY_BUFFER,numOfLines*2*sizeof(GLuint),indices_line,GL_STATIC_DRAW);
 
 
 	//generate and bind the VBO "buffer" for positions and color
