@@ -58,11 +58,11 @@ ImageIO * heightmapImage;
 
 //global variables
 OpenGLMatrix *openGLMatrix = new OpenGLMatrix();
-GLuint ebo_triangle;
-GLuint vbo;
-BasicPipelineProgram *pipelineProgram;
+GLuint ebo_triangle=0;
+GLuint vbo=0;
+BasicPipelineProgram *pipelineProgram = new BasicPipelineProgram();
 GLint program;
-GLuint vao;
+GLuint vao=0;
 int numOfVertices =0;
 int numOfStripPoint = 0;
 
@@ -73,20 +73,19 @@ const float aspect=(float)windowWidth/(float)windowHeight;//calculate the perpec
 //Set some helper function
 void doTransform()
 {
-  //Calculate the transform matrix and store it into m_view
+  	//Calculate the transform matrix and store it into m_view
 	openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
-  openGLMatrix->LoadIdentity();
-  openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
-  openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
-  openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
-  openGLMatrix->Rotate(landRotate[2], 0.0, 0.0, 1.0);
-  openGLMatrix->Scale(landScale[0],landScale[1],landScale[2]);
-  float m_view[16];
-  openGLMatrix->GetMatrix(m_view);
-
-  //pass the transform matrix into pipeline program
-  //cout<<m_view[0]<<" "<<m_view[5]<<" "<<m_view[10]<<" "<<m_view[15]<<endl;
-  pipelineProgram->SetModelViewMatrix(m_view);
+	openGLMatrix->LoadIdentity();
+	openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
+  	openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
+  	openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
+  	openGLMatrix->Rotate(landRotate[2], 0.0, 0.0, 1.0);
+  	openGLMatrix->Scale(landScale[0],landScale[1],landScale[2]);
+  	float m_view[16];
+  	openGLMatrix->GetMatrix(m_view);
+  	//pass the transform matrix into pipeline program
+  	//cout<<m_view[0]<<" "<<m_view[5]<<" "<<m_view[10]<<" "<<m_view[15]<<endl;
+  	pipelineProgram->SetModelViewMatrix(m_view);
 
 }
 
@@ -98,20 +97,17 @@ void renderHeightField()
 	{
 		//render the heightfield as points
 		case POINT:
-		//more to be added
-    glDrawArrays(GL_POINTS,0,numOfVertices);
+    		glDrawArrays(GL_POINTS,0,numOfVertices);
 		break;
 
 		//render the heightfield as lines
 		case LINE:
-		//more to be added
-    glDrawArrays(GL_LINES_ADJACENCY,0,numOfVertices);
+    		glDrawArrays(GL_LINES_ADJACENCY,0,numOfVertices);
 		break;
 
 		//render the heightfield as solid triangles
 		case TRIANGLE:
-		//more to be added
-    glDrawElements(GL_TRIANGLE_STRIP,numOfStripPoint,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+   	 		glDrawElements(GL_TRIANGLE_STRIP,numOfStripPoint,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
 		break;
 	}
 
@@ -135,20 +131,19 @@ void saveScreenshot(const char * filename)
 void displayFunc()
 {
 	//render some stuff
+	//bind the pipleline program
+  	pipelineProgram->Bind();
+  	glBindVertexArray(vao);
 
-  //bind the pipleline program
-  pipelineProgram->Bind();
-  glBindVertexArray(vao);
 
-
-  //clear the Window
-  glClear(GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT);
+ 	 //clear the Window
+ 	glClear(GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT);
 
 	//do the transformation
 	doTransform();
 	renderHeightField();
 
-  glBindVertexArray(0); //unbind the VAO
+  	glBindVertexArray(0); //unbind the VAO
 
 	//delete the double buffers
 	glutSwapBuffers();
@@ -405,7 +400,6 @@ void initScene(int argc, char *argv[]){
   glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
 
   //initilize the pipeline program
-  pipelineProgram = new BasicPipelineProgram();
   if(pipelineProgram->Init(shaderBasePath)!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
