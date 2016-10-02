@@ -7,5 +7,6 @@ void main()
 {
   // compute the final pixel color
   // students need to implement this
+  c=col;
 }
 

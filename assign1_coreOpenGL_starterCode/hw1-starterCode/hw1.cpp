@@ -8,6 +8,7 @@
 
 #include <iostream>
 #include <cstring>
+#include <vector>
 #include "openGLHeader.h"
 #include "glutHeader.h"
 
@@ -50,6 +51,7 @@ RENDER_STATE renderState = TRIANGLE;
 float landRotate[3] = { 0.0f, 0.0f, 0.0f };
 float landTranslate[3] = { 0.0f, 0.0f, 0.0f };
 float landScale[3] = { 1.0f, 1.0f, 1.0f };
+
 int windowWidth = 1280;
 int windowHeight = 720;
 char windowTitle[512] = "CSCI 420 homework I";
@@ -57,130 +59,133 @@ char windowTitle[512] = "CSCI 420 homework I";
 ImageIO * heightmapImage;
 
 //global variables
-OpenGLMatrix *openGLMatrix = new OpenGLMatrix();
-GLuint ebo_triangle=0;
-GLuint ebo_line=0;
-GLuint vbo=0;
-BasicPipelineProgram *pipelineProgram = new BasicPipelineProgram();
-GLint program;
-GLuint vao_point=0;
-GLuint vao_lines=0;
-GLuint vao_triangle=0;
-int numOfVertices =0;
-int numOfStripPoint = 0;
-int numOfLines=0;
-GLfloat *positions;
-GLfloat *colors;
+GLuint vbo;
+GLuint ebo;
+GLuint vao;
+int width;
+int height;
+int numOfStrips;
+int numOfVertices;
+int numOfLines;
+GLuint *indices_triangles;
+GLuint *indices_lines;
 
 //Set some constent parameter
 const float fovy = 60;//the view angle is 45 degrees
 const float aspect=(float)windowWidth/(float)windowHeight;//calculate the perpective 
 
-//Set some helper function
-void doTransform()
-{
-  	//Calculate the transform matrix and store it into m_view
-	openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
-	openGLMatrix->LoadIdentity();
-	openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
-  	openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
-  	openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
-  	openGLMatrix->Rotate(landRotate[2], 0.0, 0.0, 1.0);
-  	openGLMatrix->Scale(landScale[0],landScale[1],landScale[2]);
-  	float m_view[16];
-  	openGLMatrix->GetMatrix(m_view);
-  	//pass the transform matrix into pipeline program
-  	//cout<<m_view[0]<<" "<<m_view[5]<<" "<<m_view[10]<<" "<<m_view[15]<<endl;
-  	pipelineProgram->SetModelViewMatrix(m_view);
+//program variable
+OpenGLMatrix *openGLMatrix;
+BasicPipelineProgram *pipelineProgram;
+GLuint program;
 
-}
-
-void renderHeightField()
-{
-	//more to be added ....
-
-	switch(renderState)
-	{
-		//render the heightfield as points
-		case POINT:
-			glBindVertexArray(vao_point);
-    		glDrawArrays(GL_POINTS,0,numOfVertices);
-		break;
-
-		//render the heightfield as lines
-		case LINE:
-			glBindVertexArray(vao_lines);
-    		glDrawElements(GL_LINES,numOfLines*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
-		break;
-
-		//render the heightfield as solid triangles
-		case TRIANGLE:
-			glBindVertexArray(vao_triangle);
-   	 		glDrawElements(GL_TRIANGLE_STRIP,numOfStripPoint,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
-		break;
-	}
-
-}
 
 // write a screenshot to the specified filename
 void saveScreenshot(const char * filename)
 {
-  	unsigned char * screenshotData = new unsigned char[windowWidth * windowHeight * 3];
-  	glReadPixels(0, 0, windowWidth, windowHeight, GL_RGB, GL_UNSIGNED_BYTE, screenshotData);
+  unsigned char * screenshotData = new unsigned char[windowWidth * windowHeight * 3];
+  glReadPixels(0, 0, windowWidth, windowHeight, GL_RGB, GL_UNSIGNED_BYTE, screenshotData);
 
-  	ImageIO screenshotImg(windowWidth, windowHeight, 3, screenshotData);
+  ImageIO screenshotImg(windowWidth, windowHeight, 3, screenshotData);
 
-  	if (screenshotImg.save(filename, ImageIO::FORMAT_JPEG) == ImageIO::OK)
-    	cout << "File " << filename << " saved successfully." << endl;
-  	else cout << "Failed to save file " << filename << '.' << endl;
+  if (screenshotImg.save(filename, ImageIO::FORMAT_JPEG) == ImageIO::OK)
+    cout << "File " << filename << " saved successfully." << endl;
+  else cout << "Failed to save file " << filename << '.' << endl;
 
-  	delete [] screenshotData;
+  delete [] screenshotData;
+}
+
+void renderHeightField(){
+  switch(renderState)
+  {
+    //render the heightfield as points
+    case POINT:
+      glBindBuffer(GL_ARRAY_BUFFER,vbo);
+      glDrawArrays(GL_POINTS,0,numOfVertices);
+    break;
+
+    //render the heightfield as lines
+    case LINE:
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
+      glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfLines*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
+      glDrawElements(GL_LINES,numOfLines*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+    break;
+
+    //render the heightfield as solid triangles
+    case TRIANGLE:
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
+      glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfStrips*2*width*sizeof(GLuint),indices_triangles,GL_STATIC_DRAW);
+      glDrawElements(GL_TRIANGLE_STRIP,numOfStrips*2*width,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+    break;
+  }
+
+}
+
+void doTransform()
+{
+    //Calculate the transform matrix and store it into m_view
+  openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
+  openGLMatrix->LoadIdentity();
+  openGLMatrix->LookAt(0.0f, 0.0f, 2.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);  
+  openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
+    openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
+    openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
+    openGLMatrix->Rotate(landRotate[2], 0.0, 0.0, 1.0);
+    openGLMatrix->Scale(landScale[0],landScale[1],landScale[2]);
+
+
+  float m_view[16];
+  openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
+    openGLMatrix->GetMatrix(m_view);
+
+    float m_perspective[16];
+    openGLMatrix->SetMatrixMode(OpenGLMatrix::Projection);
+  openGLMatrix->GetMatrix(m_perspective);
+
+  pipelineProgram->SetModelViewMatrix(m_view);
+  pipelineProgram->SetProjectionMatrix(m_perspective);
 }
 
 void displayFunc()
 {
-	//render some stuff
-	//bind the pipleline program
-  	pipelineProgram->Bind();
 
+  //clear the Window
+  glClear(GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT);
 
- 	 //clear the Window
- 	glClear(GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT);
+  doTransform();
 
-	//do the transformation
-	doTransform();
-	renderHeightField();
+  pipelineProgram->Bind();
+  glBindVertexArray(vao);
 
-  	glBindVertexArray(0); //unbind the VAO
+  renderHeightField();
 
-	//delete the double buffers
-	glutSwapBuffers();
+  glBindVertexArray(0);
+
+  glutSwapBuffers();
+
 }
 
 void idleFunc()
 {
-  	// do some stuff... 
+  // do some stuff... 
 
-  	// for example, here, you can save the screenshots to disk (to make the animation)
+  // for example, here, you can save the screenshots to disk (to make the animation)
 
-  	// make the screen update 
-	glutPostRedisplay();
+  // make the screen update 
+  glutPostRedisplay();
 }
 
 void reshapeFunc(int w, int h)
 {
-	glViewport(0, -128, w, h);
-	// setup perspective matrix...
-	openGLMatrix->SetMatrixMode(OpenGLMatrix::Projection);
-	openGLMatrix->LoadIdentity();
-	openGLMatrix->Perspective(fovy,aspect,0.01f,100.0f);
-  //openGLMatrix->Ortho(0,0,0,0,0.01,10.0);
-	float m_perspective[16];
-	openGLMatrix->GetMatrix(m_perspective);
+  glViewport(0, 0, w, h);
 
-	pipelineProgram->SetProjectionMatrix(m_perspective);
-
-
+  // setup perspective matrix...
+  glViewport(0, 0, w, h);
+  // setup perspective matrix...
+  openGLMatrix->SetMatrixMode(OpenGLMatrix::Projection);
+  openGLMatrix->LoadIdentity();
+  openGLMatrix->Perspective(fovy,aspect,0.01f,1000.0f);
+  openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
 }
 
 void mouseMotionDragFunc(int x, int y)
@@ -320,7 +325,6 @@ void keyboardFunc(unsigned char key, int x, int y)
       }
 
       cout<<"Rendering heightfield as state: "<<renderState<<endl;
-
     break;
 
     case 'x':
@@ -330,155 +334,73 @@ void keyboardFunc(unsigned char key, int x, int y)
   }
 }
 
-void GenPointMap(int height, int width){
-	//create VAO
-	glGenVertexArrays(1,&vao_point);
-  	glBindVertexArray(vao_point);
-
-  	//generate and bind the VBO "buffer" for positions and color
-  	glGenBuffers(1,&vbo); 
-  	glBindBuffer(GL_ARRAY_BUFFER,vbo);
-  	glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
- 	glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
-  	glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
-
-  	//get location index of the "position"shader variable
-  	GLuint loc=glGetAttribLocation(program,"position");
-  	glEnableVertexAttribArray(loc);//enable "position attribe"
-  	GLsizei stride=0;
- 	GLboolean normalized=GL_FALSE;
-  	//set the layout of the "position" attribute data
-  	glVertexAttribPointer(loc,3,GL_FLOAT,normalized,stride,BUFFER_OFFSET(0));
-
- 	//get location index of the "color"shader variable
- 	GLuint loc2=glGetAttribLocation(program,"color");
- 	glEnableVertexAttribArray(loc2);//enable "position attribe"
-  	//set the layout of the "color" attribute data
-  	glVertexAttribPointer(loc2,4,GL_FLOAT,normalized,stride,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
-
-  	glBindVertexArray(0); //unbind the VAO 
-
-}
-
-void GenLineMap(int height, int width){
-	//create VAO
-	glGenVertexArrays(1,&vao_lines);
-	glBindVertexArray(vao_lines);
-
-	//assign the indices information for element draw of triangle
-  	int count=0;
-  	GLuint *indices_line= new GLuint[numOfLines*2];
-  	for(int i=0;i<height-1;i++){
-    	for(int j=0;j<width;j++){
-      	indices_line[count]=i*width+j;
-      	indices_line[count+1]=i*width+j+1;
-      	indices_line[count+2]=i*width+j+1;
-      	indices_line[count+3]=i*width+j+width;
-      	indices_line[count+4]=i*width+j+width;
-      	indices_line[count+5]=i*width+j;
-      	count=count+5;
-    	}
- 	}
- 	for(int i=0;i<height-1;i++){
- 		indices_line[count]=i*width+width-1;
- 		indices_line[count+1]=i*width+2*width-1;
- 		count=count+2;
-
- 	}
-
- 	for(int j=0;j<width-1;j++){
- 		indices_line[count]=(height-2)*width+j;
- 		indices_line[count+1]=(height-2)*width+j+1;
-
- 		count=count+2;
- 	}
-  	//generate and bind the EBO buffer for indices
-  	glGenBuffers(1,&ebo_line);
-  	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_line);
- 	glBufferData(GL_ARRAY_BUFFER,numOfLines*2*sizeof(GLuint),indices_line,GL_STATIC_DRAW);
-
-
-	//generate and bind the VBO "buffer" for positions and color
-  	glGenBuffers(1,&vbo); 
-  	glBindBuffer(GL_ARRAY_BUFFER,vbo);
-  	glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
- 	glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
-  	glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
-
-  	//get location index of the "position"shader variable
-  	GLuint loc=glGetAttribLocation(program,"position");
-  	glEnableVertexAttribArray(loc);//enable "position attribe"
-  	GLsizei stride=0;
- 	GLboolean normalized=GL_FALSE;
-  	//set the layout of the "position" attribute data
-  	glVertexAttribPointer(loc,3,GL_FLOAT,normalized,stride,BUFFER_OFFSET(0));
-
- 	//get location index of the "color"shader variable
- 	GLuint loc2=glGetAttribLocation(program,"color");
- 	glEnableVertexAttribArray(loc2);//enable "position attribe"
-  	//set the layout of the "color" attribute data
-  	glVertexAttribPointer(loc2,4,GL_FLOAT,normalized,stride,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
-
-
-  	glBindVertexArray(0); //unbind the VAO 
-
-}
-
-void GenTriangleMap(int height, int width) {
-
-	//create VAO
-	glGenVertexArrays(1,&vao_triangle);
-	glBindVertexArray(vao_triangle);
-
-	//assign the indices information for element draw of triangle
-  	int count=0;
-  	GLuint *indices_triangle= new GLuint[numOfStripPoint];
-  	for(int i=0;i<height-1;i++){
-    	for(int j=0;j<width;j++){
-      	indices_triangle[count]=i*width+j;
-      	indices_triangle[count+1]=i*width+j+width;
-     	count=count+2;
-    	}
- 	}
-
- 	//Connect VBO to VAO
-  	//generate and bind the EBO buffer for indices
-  	glGenBuffers(1,&ebo_triangle);
-  	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_triangle);
- 	glBufferData(GL_ARRAY_BUFFER,numOfStripPoint*sizeof(GLuint),indices_triangle,GL_STATIC_DRAW);
-
- 	//generate and bind the VBO "buffer" for positions and color
-  	glGenBuffers(1,&vbo); 
-  	glBindBuffer(GL_ARRAY_BUFFER,vbo);
-  	glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
- 	glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
-  	glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
-
-  	//get location index of the "position"shader variable
-  	GLuint loc=glGetAttribLocation(program,"position");
-  	glEnableVertexAttribArray(loc);//enable "position attribe"
-  	GLsizei stride=0;
- 	GLboolean normalized=GL_FALSE;
-  	//set the layout of the "position" attribute data
-  	glVertexAttribPointer(loc,3,GL_FLOAT,normalized,stride,BUFFER_OFFSET(0));
-
- 	//get location index of the "color"shader variable
- 	GLuint loc2=glGetAttribLocation(program,"color");
- 	glEnableVertexAttribArray(loc2);//enable "position attribe"
-  	//set the layout of the "color" attribute data
-  	glVertexAttribPointer(loc2,4,GL_FLOAT,normalized,stride,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
-
-  	glBindVertexArray(0); //unbind the VAO 
-
-
+void bindProgram(){
+    GLuint loc = glGetAttribLocation(program, "position"); 
+    glEnableVertexAttribArray(loc);
+    glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
+    GLuint loc2 = glGetAttribLocation(program, "color"); 
+    glEnableVertexAttribArray(loc2);
+    glVertexAttribPointer(loc2, 4, GL_FLOAT, GL_FALSE, 0,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
 
 }
 
 
+void GenLineIndices( ){
+  //assign the indices information for element draw of triangle
+    int count=0;
+    indices_lines= new GLuint[numOfLines*2];
+    for(int i=0;i<height-1;i++){
+      for(int j=0;j<width;j++){
+        indices_lines[count]=i*width+j;
+        indices_lines[count+1]=i*width+j+1;
+        indices_lines[count+2]=i*width+j+1;
+        indices_lines[count+3]=i*width+j+width;
+        indices_lines[count+4]=i*width+j+width;
+        indices_lines[count+5]=i*width+j;
+        count=count+5;
+      }
+  }
+  for(int i=0;i<height-1;i++){
+    indices_lines[count]=i*width+width-1;
+    indices_lines[count+1]=i*width+2*width-1;
+    count=count+2;
 
-void initScene(int argc, char *argv[]){
+  }
 
-  // do additional initialization here...
+  for(int j=0;j<width-1;j++){
+    indices_lines[count]=(height-2)*width+j;
+    indices_lines[count+1]=(height-2)*width+j+1;
+
+    count=count+2;
+  }
+
+}
+
+void GenTriangleIndices( ) {
+
+  //assign the indices information for element draw of triangle
+    int count=0;
+    indices_triangles= new GLuint[numOfStrips*2*width];
+    for(int i=0;i<height-1;i++){
+      for(int j=0;j<width;j++){
+        indices_triangles[count]=i*width+j;
+        indices_triangles[count+1]=i*width+j+width;
+      count=count+2;
+      }
+  }
+}
+
+void initScene(int argc, char *argv[])
+{
+
+  //initialize OpenGLMatrix and BasicPipelineProgram
+  openGLMatrix = new OpenGLMatrix();
+  pipelineProgram = new BasicPipelineProgram();
+
+  // Enable depth testing, then prioritize fragments closest to the camera
+  glEnable(GL_DEPTH_TEST);
+
+  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
   // load the image from a jpeg disk file to main memory
   heightmapImage = new ImageIO();
@@ -488,32 +410,37 @@ void initScene(int argc, char *argv[]){
     exit(EXIT_FAILURE);
   }
 
-  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+  
 
   //get image height and width
-  int height = heightmapImage->getHeight();
-  int width = heightmapImage-> getWidth();
+  height = heightmapImage->getHeight();
+  width = heightmapImage->getWidth();
+  //width = 2;
   numOfVertices =height*width;
-  numOfStripPoint = height*width*2-width*2;
+  numOfStrips = height-1;
   numOfLines=(height-1)*(width-1)*3+(width-1)+(height-1);
-  cout<<"There is "<<numOfStripPoint<<" strip points and "<<numOfVertices<<" of positions"<<endl;
+  //numOfVertices=4;
+  //numOfStrips=1;
+  //numOfLines=5;
 
+  //cout<<"There is "<<numOfStripPoint<<" strip points and "<<numOfVertices<<" of positions"<<endl;
   int count=0;
-  int normalizeParameter=(height+width)/2/256; //set depth in the similar scale as width and height
+  float normalizeParameter_xy=1.0f/255.0f;
+  float normalizeParameter_z=1.0f/256.0f; //set depth in the similar scale as width and height
 
   //Load the positions information and color information from image
-  positions=new GLfloat[numOfVertices*3];
-  colors=new GLfloat[numOfVertices*4];
-  for(int x=-height/2;x<height/2;x++){
-    for(int y=-width/2;y<width/2;y++){
+  GLfloat positions[numOfVertices*3];
+  GLfloat colors[numOfVertices*4];
+  for(int x=0;x<height;x++){
+    for(int y=0;y<width;y++){
       // assign the position value for each positions
-      GLfloat z = heightmapImage->getPixel(x + height / 2, z + width / 2, 0);
-      positions[3*count]=x;
-      positions[3*count+1]=y;
-      positions[3*count+2]=z*normalizeParameter;
+      GLfloat z = heightmapImage->getPixel(x,y,0);
+      positions[3*count]=(x-height/2)*normalizeParameter_xy;
+      positions[3*count+1]=(y-width/2)*normalizeParameter_xy;
+      positions[3*count+2]=z*normalizeParameter_z;
 
       //assign the color value for each positions
-      GLfloat color = heightmapImage->getPixel(x + height / 2, z + width / 2, 0)/(float)255.0f;
+      GLfloat color = heightmapImage->getPixel(x,y,0)/(float)255.0f;
       colors[3*count]=color;
       colors[3*count+1]=color;
       colors[3*count+2]=color;
@@ -523,38 +450,43 @@ void initScene(int argc, char *argv[]){
       count++;
     }
   }
+  
+  GenLineIndices();
+  GenTriangleIndices();
+  
+
+  //create VAO
+  glGenVertexArrays(1,&vao);
+  glBindVertexArray(vao);
 
 
-  //cout<<"Now successfully load all positions and indices information"<<endl;
+  // Generate 1 buffer, put the resulting identifier in vbo
+  glGenBuffers(1, &vbo);
+  // The following commands will talk about our 'vbo' buffer
+  glBindBuffer(GL_ARRAY_BUFFER, vbo);
+  // Give our vertices to OpenGL.
+  glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
+  glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
 
+  glGenBuffers(1,&ebo);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
 
-  //initilize the pipeline program
   if(pipelineProgram->Init(shaderBasePath)!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
   }
   //already load the shader in pipelineProgram->Init()
 
-  // Enable depth testing, then prioritize fragments closest to the camera
-  glEnable(GL_DEPTH_TEST);
-  glDepthFunc(GL_LESS);
-
-  //Bind the Shaders
-  pipelineProgram->Bind();
-
   //get pipeline program handle
   program=pipelineProgram->GetProgramHandle();
-  //activate the program
-  glUseProgram(program);   
 
-  //cout<<"Now successfully set layout of the position and color attribute data"<<endl;
+  bindProgram();
+  
 
-  GenPointMap(height,width);
-  GenLineMap(height,width);
-  GenTriangleMap(height,width);
+  glBindVertexArray(0);
 
 }
-
 
 int main(int argc, char *argv[])
 {
@@ -617,11 +549,6 @@ int main(int argc, char *argv[])
 
   // sink forever into the glut loop
   glutMainLoop();
-
-  //unbind VAO 
-  glBindVertexArray(0);
-
-  delete pipelineProgram;
 }
 
 
