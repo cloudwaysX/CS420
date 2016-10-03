@@ -57,6 +57,7 @@ int windowHeight = 720;
 char windowTitle[512] = "CSCI 420 homework I";
 
 ImageIO * heightmapImage;
+ImageIO * colormapImage;
 
 //global variables
 GLuint vbo;
@@ -69,8 +70,9 @@ int numOfVertices;
 int numOfLines;
 GLuint *indices_triangles;
 GLuint *indices_lines;
+bool isColored =false;
 
-//Set some constent parameter
+//Set some constant parameter for the window view
 const float fovy = 60;//the view angle is 45 degrees
 const float aspect=(float)windowWidth/(float)windowHeight;//calculate the perpective 
 
@@ -128,20 +130,22 @@ void doTransform()
   openGLMatrix->LoadIdentity();
   openGLMatrix->LookAt(0.0f, 0.0f, 2.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);  
   openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
-    openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
-    openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
-    openGLMatrix->Rotate(landRotate[2], 0.0, 0.0, 1.0);
-    openGLMatrix->Scale(landScale[0],landScale[1],landScale[2]);
+  openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
+  openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
+  openGLMatrix->Rotate(landRotate[2], 0.0, 0.0, 1.0);
+  openGLMatrix->Scale(landScale[0],landScale[1],landScale[2]);
 
-
+  //store the ModelView matrix into m_view
   float m_view[16];
   openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
-    openGLMatrix->GetMatrix(m_view);
+  openGLMatrix->GetMatrix(m_view);
 
-    float m_perspective[16];
-    openGLMatrix->SetMatrixMode(OpenGLMatrix::Projection);
+  //store the perspective matrix into m_perspective
+  float m_perspective[16];
+  openGLMatrix->SetMatrixMode(OpenGLMatrix::Projection);
   openGLMatrix->GetMatrix(m_perspective);
 
+  //upload the transformation to shader
   pipelineProgram->SetModelViewMatrix(m_view);
   pipelineProgram->SetProjectionMatrix(m_perspective);
 }
@@ -154,12 +158,13 @@ void displayFunc()
 
   doTransform();
 
-  pipelineProgram->Bind();
-  glBindVertexArray(vao);
+  pipelineProgram->Bind();//bind shader
 
-  renderHeightField();
+  glBindVertexArray(vao);//bind vao
 
-  glBindVertexArray(0);
+  renderHeightField();//rendering
+
+  glBindVertexArray(0);//unbind the vao
 
   glutSwapBuffers();
 
@@ -400,6 +405,7 @@ void initScene(int argc, char *argv[])
   // Enable depth testing, then prioritize fragments closest to the camera
   glEnable(GL_DEPTH_TEST);
 
+	//clear the window
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
   // load the image from a jpeg disk file to main memory
@@ -410,23 +416,25 @@ void initScene(int argc, char *argv[])
     exit(EXIT_FAILURE);
   }
 
-  
+  colormapImage = new ImageIO();
+  if(isColored){
+  	if (colormapImage->loadJPEG(argv[2]) != ImageIO::OK)
+  	{
+    	cout << "Error reading image " << argv[2] << "." << endl;
+    	exit(EXIT_FAILURE);
+  	}
+  }  
 
   //get image height and width
   height = heightmapImage->getHeight();
   width = heightmapImage->getWidth();
-  //width = 2;
   numOfVertices =height*width;
   numOfStrips = height-1;
   numOfLines=(height-1)*(width-1)*3+(width-1)+(height-1);
-  //numOfVertices=4;
-  //numOfStrips=1;
-  //numOfLines=5;
 
-  //cout<<"There is "<<numOfStripPoint<<" strip points and "<<numOfVertices<<" of positions"<<endl;
   int count=0;
   float normalizeParameter_xy=1.0f/255.0f;
-  float normalizeParameter_z=1.0f/256.0f; //set depth in the similar scale as width and height
+  float normalizeParameter_z=1.0f/255.0f; //set depth in the similar scale as width and height
 
   //Load the positions information and color information from image
   GLfloat positions[numOfVertices*3];
@@ -439,18 +447,32 @@ void initScene(int argc, char *argv[])
       positions[3*count+1]=(y-width/2)*normalizeParameter_xy;
       positions[3*count+2]=z*normalizeParameter_z;
 
-      //assign the color value for each positions
-      GLfloat color = heightmapImage->getPixel(x,y,0)/(float)255.0f;
-      colors[3*count]=color;
-      colors[3*count+1]=color;
-      colors[3*count+2]=color;
-      colors[3*count+3]=1.0f;
 
+	//assign the color value for each positions
+      if(isColored){
+      	//if another color map is provided
+      	GLfloat color0 = colormapImage->getPixel(x,y,0)*normalizeParameter_z;
+      	GLfloat color1 = colormapImage->getPixel(x,y,1)*normalizeParameter_z;
+      	GLfloat color2 = colormapImage->getPixel(x,y,2)*normalizeParameter_z;
+      	colors[3*count]=color0;
+      	colors[3*count+1]=color1;
+      	colors[3*count+2]=color2;
+      	colors[3*count+3]=1.0f;
+      }
+      else{
+      	//use the heightmap as colormap
+      	GLfloat color = z*normalizeParameter_z;
+      	colors[3*count]=color;
+      	colors[3*count+1]=color;
+      	colors[3*count+2]=color;
+      	colors[3*count+3]=1.0f;
+      }
       //the index of positions +1
       count++;
     }
   }
   
+  //store the indices array for Lines and Triangles
   GenLineIndices();
   GenTriangleIndices();
   
@@ -460,41 +482,49 @@ void initScene(int argc, char *argv[])
   glBindVertexArray(vao);
 
 
-  // Generate 1 buffer, put the resulting identifier in vbo
+  // Generate 1 vbo buffer to store all vertices information
   glGenBuffers(1, &vbo);
-  // The following commands will talk about our 'vbo' buffer
   glBindBuffer(GL_ARRAY_BUFFER, vbo);
-  // Give our vertices to OpenGL.
   glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
   glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
   glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
 
+  //Generate 1 veo buffer to store indices information, assign the buffer data later
   glGenBuffers(1,&ebo);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
 
+  //initiate the shader program
   if(pipelineProgram->Init(shaderBasePath)!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
   }
-  //already load the shader in pipelineProgram->Init()
 
   //get pipeline program handle
   program=pipelineProgram->GetProgramHandle();
 
+  //bind vao, link the shader to vao
   bindProgram();
   
-
+  //unbinf vao
   glBindVertexArray(0);
 
 }
 
 int main(int argc, char *argv[])
 {
-  if (argc != 2)
+  if (argc < 2||argc>3)
   {
     cout << "The arguments are incorrect." << endl;
     cout << "usage: ./hw1 <heightmap file>" << endl;
     exit(EXIT_FAILURE);
+  }
+  else if(argc==3){
+  	//if color map is provided
+  	isColored=true;
+  	cout<<"rendering color image"<<endl;
+  }
+  else{
+  	cout<<"rendering gray scale image"<<endl;
   }
 
   cout << "Initializing GLUT..." << endl;
