@@ -71,6 +71,8 @@ int numOfLines;
 GLuint *indices_triangles;
 GLuint *indices_lines;
 bool isColored =false;
+GLuint loc;
+GLuint loc2;
 
 //Set some constant parameter for the window view
 const float fovy = 60;//the view angle is 45 degrees
@@ -81,6 +83,17 @@ OpenGLMatrix *openGLMatrix;
 BasicPipelineProgram *pipelineProgram;
 GLuint program;
 
+
+
+void bindProgram(){
+    loc = glGetAttribLocation(program, "position"); 
+    glEnableVertexAttribArray(loc);
+    glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
+    loc2 = glGetAttribLocation(program, "color"); 
+    glEnableVertexAttribArray(loc2);
+    glVertexAttribPointer(loc2, 4, GL_FLOAT, GL_FALSE, 0,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
+
+}
 
 // write a screenshot to the specified filename
 void saveScreenshot(const char * filename)
@@ -103,6 +116,8 @@ void renderHeightField(){
     //render the heightfield as points
     case POINT:
       glBindBuffer(GL_ARRAY_BUFFER,vbo);
+      pipelineProgram->Bind();//bind shader
+      bindProgram();
       glDrawArrays(GL_POINTS,0,numOfVertices);
     break;
 
@@ -110,6 +125,8 @@ void renderHeightField(){
     case LINE:
       glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
       glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfLines*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
+      bindProgram();
+      pipelineProgram->Bind();//bind shader
       glDrawElements(GL_LINES,numOfLines*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
     break;
 
@@ -117,6 +134,8 @@ void renderHeightField(){
     case TRIANGLE:
       glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
       glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfStrips*2*width*sizeof(GLuint),indices_triangles,GL_STATIC_DRAW);
+      pipelineProgram->Bind();//bind shader
+      bindProgram();
       glDrawElements(GL_TRIANGLE_STRIP,numOfStrips*2*width,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
     break;
   }
@@ -158,13 +177,14 @@ void displayFunc()
 
   doTransform();
 
-  pipelineProgram->Bind();//bind shader
-
   glBindVertexArray(vao);//bind vao
 
   renderHeightField();//rendering
 
-  glBindVertexArray(0);//unbind the vao
+  //glBindVertexArray(0);//unbind the vao
+
+  glDisableVertexAttribArray(loc);
+  glDisableVertexAttribArray(loc2);
 
   glutSwapBuffers();
 
@@ -339,16 +359,6 @@ void keyboardFunc(unsigned char key, int x, int y)
   }
 }
 
-void bindProgram(){
-    GLuint loc = glGetAttribLocation(program, "position"); 
-    glEnableVertexAttribArray(loc);
-    glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
-    GLuint loc2 = glGetAttribLocation(program, "color"); 
-    glEnableVertexAttribArray(loc2);
-    glVertexAttribPointer(loc2, 4, GL_FLOAT, GL_FALSE, 0,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
-
-}
-
 
 void GenLineIndices( ){
   //assign the indices information for element draw of triangle
@@ -388,8 +398,14 @@ void GenTriangleIndices( ) {
     indices_triangles= new GLuint[numOfStrips*2*width];
     for(int i=0;i<height-1;i++){
       for(int j=0;j<width;j++){
-        indices_triangles[count]=i*width+j;
-        indices_triangles[count+1]=i*width+j+width;
+      	if(i%2==0){
+      		indices_triangles[count]=i*width+j;
+        	indices_triangles[count+1]=i*width+j+width;
+      	}
+      	else{
+      		indices_triangles[count]=i*width+width-1-j;
+        	indices_triangles[count+1]=i*width+width-1-j+width;
+      	}
       count=count+2;
       }
   }
