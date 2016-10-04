@@ -44,7 +44,7 @@ typedef enum { ROTATE, TRANSLATE, SCALE } CONTROL_STATE;
 CONTROL_STATE controlState = ROTATE;
 
 //three rendering types
-typedef enum {POINT, LINE, TRIANGLE} RENDER_STATE;
+typedef enum {POINT, LINE, TRIANGLE,WIREOVERTRIANGLE} RENDER_STATE;
 RENDER_STATE renderState = TRIANGLE;
 
 // state of the world
@@ -115,29 +115,44 @@ void renderHeightField(){
   {
     //render the heightfield as points
     case POINT:
-      glBindBuffer(GL_ARRAY_BUFFER,vbo);
-      pipelineProgram->Bind();//bind shader
-      bindProgram();
-      glDrawArrays(GL_POINTS,0,numOfVertices);
+      	glBindBuffer(GL_ARRAY_BUFFER,vbo);
+      	pipelineProgram->Bind();//bind shader
+      	bindProgram();//bind vao
+      	glDrawArrays(GL_POINTS,0,numOfVertices);
     break;
 
     //render the heightfield as lines
     case LINE:
-      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
-      glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfLines*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
-      bindProgram();
-      pipelineProgram->Bind();//bind shader
-      glDrawElements(GL_LINES,numOfLines*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+      	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
+      	glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfLines*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
+      	bindProgram();//bind vao
+      	pipelineProgram->Bind();//bind shader
+      	glDrawElements(GL_LINES,numOfLines*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
     break;
 
     //render the heightfield as solid triangles
     case TRIANGLE:
-      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
-      glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfStrips*2*width*sizeof(GLuint),indices_triangles,GL_STATIC_DRAW);
-      pipelineProgram->Bind();//bind shader
-      bindProgram();
-      glDrawElements(GL_TRIANGLE_STRIP,numOfStrips*2*width,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+      	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
+      	glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfStrips*2*width*sizeof(GLuint),indices_triangles,GL_STATIC_DRAW);
+      	pipelineProgram->Bind();//bind shader
+      	bindProgram();//bind vao
+      	glDrawElements(GL_TRIANGLE_STRIP,numOfStrips*2*width,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
     break;
+
+    case WIREOVERTRIANGLE:
+    	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
+      	glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfStrips*2*width*sizeof(GLuint),indices_triangles,GL_STATIC_DRAW);
+      	pipelineProgram->Bind();//bind shader
+      	bindProgram();//bind vao
+      	glDrawElements(GL_TRIANGLE_STRIP,numOfStrips*2*width,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+      	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
+      	glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfLines*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
+      	bindProgram();//bind vao
+      	pipelineProgram->Bind();//bind shader
+      	glDrawElements(GL_LINES,numOfLines*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+    break;
+
+
   }
 
 }
@@ -328,7 +343,9 @@ void keyboardFunc(unsigned char key, int x, int y)
   switch (key)
   {
     case 27: // ESC key
-      exit(0); // exit the program
+    	delete []indices_lines;
+    	delete []indices_triangles;
+      	exit(0); // exit the program
     break;
 
     case ' ':
@@ -336,7 +353,11 @@ void keyboardFunc(unsigned char key, int x, int y)
 
       //switch the render state when each time the spacebar is pressed
       switch (renderState){
-        case TRIANGLE:
+      	case TRIANGLE:
+      		renderState=WIREOVERTRIANGLE;
+      	break;
+
+        case WIREOVERTRIANGLE:
           renderState=POINT;
         break;
 
@@ -431,20 +452,27 @@ void initScene(int argc, char *argv[])
     cout << "Error reading image " << argv[1] << "." << endl;
     exit(EXIT_FAILURE);
   }
-  cout<<heightmapImage->getBytesPerPixel()<<endl;
+   //get image height and width
+  height = heightmapImage->getHeight();
+  width = heightmapImage->getWidth();
 
-  colormapImage = new ImageIO();
   if(isColored){
+  	colormapImage = new ImageIO();
   	if (colormapImage->loadJPEG(argv[2]) != ImageIO::OK)
   	{
     	cout << "Error reading image " << argv[2] << "." << endl;
     	exit(EXIT_FAILURE);
   	}
+
+  	//ensure color and height image are in the same size
+  	if(height!=colormapImage->getHeight()||width!=colormapImage->getWidth()){
+  		cout << "color and height image not in the same size" << "." << endl;
+    	exit(EXIT_FAILURE);
+  	}
   }  
 
-  //get image height and width
-  height = heightmapImage->getHeight();
-  width = heightmapImage->getWidth();
+
+  //get number of vertices, strips and lines that used to render the three mode
   numOfVertices =height*width;
   numOfStrips = height-1;
   numOfLines=(height-1)*(width-1)*3+(width-1)+(height-1);
@@ -524,11 +552,12 @@ void initScene(int argc, char *argv[])
   //get pipeline program handle
   program=pipelineProgram->GetProgramHandle();
 
-  //bind vao, link the shader to vao
-  bindProgram();
-  
   //unbinf vao
   glBindVertexArray(0);
+
+  //delete points
+  delete []positions;
+  delete []colors;
 
 }
 
@@ -601,6 +630,7 @@ int main(int argc, char *argv[])
 
   // sink forever into the glut loop
   glutMainLoop();
+
 }
 
 
