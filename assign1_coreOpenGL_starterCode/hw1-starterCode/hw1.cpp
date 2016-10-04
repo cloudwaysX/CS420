@@ -91,7 +91,7 @@ void bindProgram(){
     glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
     loc2 = glGetAttribLocation(program, "color"); 
     glEnableVertexAttribArray(loc2);
-    glVertexAttribPointer(loc2, 4, GL_FLOAT, GL_FALSE, 0,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
+    glVertexAttribPointer(loc2, 3, GL_FLOAT, GL_FALSE, 0,BUFFER_OFFSET(numOfVertices*3*sizeof(GLfloat)));
 
 }
 
@@ -431,6 +431,7 @@ void initScene(int argc, char *argv[])
     cout << "Error reading image " << argv[1] << "." << endl;
     exit(EXIT_FAILURE);
   }
+  cout<<heightmapImage->getBytesPerPixel()<<endl;
 
   colormapImage = new ImageIO();
   if(isColored){
@@ -453,38 +454,43 @@ void initScene(int argc, char *argv[])
   float normalizeParameter_z=1.0f/255.0f; //set depth in the similar scale as width and height
 
   //Load the positions information and color information from image
-  GLfloat positions[numOfVertices*3];
-  GLfloat colors[numOfVertices*4];
+  GLfloat *positions=new GLfloat[numOfVertices*3];
+  GLfloat *colors=new GLfloat[numOfVertices*3];
   for(int x=0;x<height;x++){
     for(int y=0;y<width;y++){
-      // assign the position value for each positions
-      GLfloat z = heightmapImage->getPixel(x,y,0);
-      positions[3*count]=(x-height/2)*normalizeParameter_xy;
-      positions[3*count+1]=(y-width/2)*normalizeParameter_xy;
-      positions[3*count+2]=z*normalizeParameter_z;
-
-
-	//assign the color value for each positions
-      if(isColored){
-      	//if another color map is provided
-      	GLfloat color0 = colormapImage->getPixel(x,y,0)*normalizeParameter_z;
-      	GLfloat color1 = colormapImage->getPixel(x,y,1)*normalizeParameter_z;
-      	GLfloat color2 = colormapImage->getPixel(x,y,2)*normalizeParameter_z;
+    	GLfloat z;
+    	GLfloat color0;
+    	GLfloat color1;
+    	GLfloat color2;
+    	//read in the color value of image and convert it to the height value  	
+    	if(heightmapImage->getBytesPerPixel()==3){
+    		//if input image has RGB value
+    		color0 = heightmapImage->getPixel(x,y,0)*normalizeParameter_z;
+    		color1 = heightmapImage->getPixel(x,y,1)*normalizeParameter_z;
+    		color2 = heightmapImage->getPixel(x,y,2)*normalizeParameter_z;
+    		z=(color2+color1+color0)/(float)3.0f;
+    	}
+    	else{
+    		//if input only has gray value
+      		z = heightmapImage->getPixel(x,y,0)*normalizeParameter_z;
+      		color0=z;color1=z;color2=z;
+    	}
+    	// assign the position value for each positions
+    	positions[3*count]=(x-height/2)*normalizeParameter_xy;
+      	positions[3*count+1]=(y-width/2)*normalizeParameter_xy;
+      	positions[3*count+2]=z;
+		//assign the color value for each positions
+      	if(isColored){
+      		//if another color map is provided
+      		color0 = colormapImage->getPixel(x,y,0)*normalizeParameter_z;
+      		color1 = colormapImage->getPixel(x,y,1)*normalizeParameter_z;
+      		color2 = colormapImage->getPixel(x,y,2)*normalizeParameter_z;
+      	}
       	colors[3*count]=color0;
       	colors[3*count+1]=color1;
       	colors[3*count+2]=color2;
-      	colors[3*count+3]=1.0f;
-      }
-      else{
-      	//use the heightmap as colormap
-      	GLfloat color = z*normalizeParameter_z;
-      	colors[3*count]=color;
-      	colors[3*count+1]=color;
-      	colors[3*count+2]=color;
-      	colors[3*count+3]=1.0f;
-      }
       //the index of positions +1
-      count++;
+      	count++;
     }
   }
   
@@ -501,9 +507,9 @@ void initScene(int argc, char *argv[])
   // Generate 1 vbo buffer to store all vertices information
   glGenBuffers(1, &vbo);
   glBindBuffer(GL_ARRAY_BUFFER, vbo);
-  glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+4)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER,numOfVertices*(3+3)*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
   glBufferSubData(GL_ARRAY_BUFFER,0,numOfVertices*3*sizeof(GLfloat),positions);//upload position data
-  glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*4*sizeof(GLfloat),colors);
+  glBufferSubData(GL_ARRAY_BUFFER,numOfVertices*3*sizeof(GLfloat),numOfVertices*3*sizeof(GLfloat),colors);
 
   //Generate 1 veo buffer to store indices information, assign the buffer data later
   glGenBuffers(1,&ebo);
