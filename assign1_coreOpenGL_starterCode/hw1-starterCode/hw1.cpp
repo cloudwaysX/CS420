@@ -2,7 +2,6 @@
   CSCI 420 Computer Graphics, USC
   Assignment 1: Height Fields
   C++ starter code
-
   Student username: <type your USC username here>
 */
 
@@ -11,6 +10,8 @@
 #include <vector>
 #include "openGLHeader.h"
 #include "glutHeader.h"
+#include <cmath>
+#include <cstdio>
 
 #include "imageIO.h"
 #include "openGLMatrix.h"
@@ -44,8 +45,8 @@ typedef enum { ROTATE, TRANSLATE, SCALE } CONTROL_STATE;
 CONTROL_STATE controlState = ROTATE;
 
 //three rendering types
-typedef enum {POINT, LINE, TRIANGLE,WIREOVERTRIANGLE} RENDER_STATE;
-RENDER_STATE renderState = TRIANGLE;
+typedef enum {POINT, LINE, TRIANGLE} RENDER_STATE;
+RENDER_STATE renderState = POINT;
 
 // state of the world
 float landRotate[3] = { 0.0f, 0.0f, 0.0f };
@@ -73,6 +74,8 @@ GLuint *indices_lines;
 bool isColored =false;
 GLuint loc;
 GLuint loc2;
+int animationCount=0;
+float r=2.0f;
 
 //Set some constant parameter for the window view
 const float fovy = 60;//the view angle is 45 degrees
@@ -139,20 +142,6 @@ void renderHeightField(){
       	glDrawElements(GL_TRIANGLE_STRIP,numOfStrips*2*width,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
     break;
 
-    case WIREOVERTRIANGLE:
-    	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
-      	glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfStrips*2*width*sizeof(GLuint),indices_triangles,GL_STATIC_DRAW);
-      	pipelineProgram->Bind();//bind shader
-      	bindProgram();//bind vao
-      	glDrawElements(GL_TRIANGLE_STRIP,numOfStrips*2*width,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
-      	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
-      	glBufferData(GL_ELEMENT_ARRAY_BUFFER,numOfLines*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
-      	bindProgram();//bind vao
-      	pipelineProgram->Bind();//bind shader
-      	glDrawElements(GL_LINES,numOfLines*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
-    break;
-
-
   }
 
 }
@@ -186,8 +175,10 @@ void doTransform()
 
 void displayFunc()
 {
-
   //clear the Window
+  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+  //clear buffer
   glClear(GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT);
 
   doTransform();
@@ -204,7 +195,7 @@ void displayFunc()
   glutSwapBuffers();
 
 }
-
+#define PI 3.14159265
 void idleFunc()
 {
   // do some stuff... 
@@ -212,7 +203,38 @@ void idleFunc()
   // for example, here, you can save the screenshots to disk (to make the animation)
 
   // make the screen update 
-  glutPostRedisplay();
+	if(animationCount==0){
+		renderState=TRIANGLE;
+	}
+	else if(animationCount==100){
+		renderState=POINT;
+	}
+	else if(animationCount==200){
+		renderState=LINE;
+	}
+
+	animationCount++;
+	if(animationCount<250){
+		float theta=animationCount*3.0f*PI/180.0f;
+		r-=0.01f;
+		landTranslate[0]=r*cos(theta);
+		landTranslate[1]=r*sin(theta);
+		landTranslate[2]-=0.008f;
+		landRotate[2]+=animationCount*PI/180.0f;	
+		char screenName[10];
+		sprintf(screenName, "%03d", animationCount);
+ 		saveScreenshot(("animation/"+std::string(screenName) + ".jpg").c_str());
+	}
+	else if(animationCount<300){
+		landScale[0]+=0.15f;
+		landScale[1]+=0.15f;
+		char screenName[10];
+		sprintf(screenName, "%03d", animationCount);
+ 		saveScreenshot(("animation/"+std::string(screenName) + ".jpg").c_str());
+	}
+
+
+  	glutPostRedisplay();
 }
 
 void reshapeFunc(int w, int h)
@@ -354,19 +376,15 @@ void keyboardFunc(unsigned char key, int x, int y)
       //switch the render state when each time the spacebar is pressed
       switch (renderState){
       	case TRIANGLE:
-      		renderState=WIREOVERTRIANGLE;
-      	break;
-
-        case WIREOVERTRIANGLE:
-          renderState=POINT;
+          	renderState=POINT;
         break;
 
         case POINT:
-          renderState=LINE;
+          	renderState=LINE;
         break;
 
         case LINE:
-          renderState=TRIANGLE;
+          	renderState=TRIANGLE;
         break;
       }
 
@@ -632,5 +650,3 @@ int main(int argc, char *argv[])
   glutMainLoop();
 
 }
-
-
