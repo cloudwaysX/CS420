@@ -267,8 +267,14 @@ void saveScreenshot(const char * filename)
 
 void renderSpline(){
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
+    //glBindBuffer(GL_ARRAY_BUFFER,vbo);
     pipelineProgram->Bind();//bind shader
-    glDrawElements(GL_LINES,positions.size()*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+    bindProgram();
+    cout<<"5"<<endl;
+    cout<<(positions.size()/3-1)*2<<endl;
+    glDrawElements(GL_LINES,(positions.size()/3-1)*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+    cout<<"6"<<endl;
+    //glDrawArrays(GL_LINES,0,positions.size()/3);
 }
 
 void doTransform()
@@ -513,11 +519,13 @@ void CreateVerices(){
 
 void GenLineIndices(){
   int count=0;
-  for(int i=0;i<positions.size()-1;i++){
+  int numOfLines=positions.size()/3-1;
+  indices_lines= new GLuint[numOfLines*2];
+  for(int i=0;i<numOfLines;i++){
+    //cout<<count<<endl;
     indices_lines[count++]=i;
     indices_lines[count++]=i+1;
   }
-
 }
 
 
@@ -536,6 +544,12 @@ void initScene(int argc, char *argv[])
   //clear the window
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
+  CreateVerices();
+  cout<<"1"<<endl;
+  cout<<positions.size()<<endl;
+  GenLineIndices();
+  cout<<"2"<<endl;
+
 
   //create VAO
   glGenVertexArrays(1,&vao);
@@ -545,11 +559,14 @@ void initScene(int argc, char *argv[])
   // Generate 1 vbo buffer to store all vertices information
   glGenBuffers(1, &vbo);
   glBindBuffer(GL_ARRAY_BUFFER, vbo);
-  glBufferData(GL_ARRAY_BUFFER,positions.size()*3*sizeof(GLfloat),&positions[0],GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER,positions.size()*sizeof(GLfloat),positions.data(),GL_STATIC_DRAW);
 
+  glGenBuffers(1,&ebo);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER,(positions.size()-1)*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER,(positions.size()/3-1)*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
   bindProgram();//bind vao
+  cout<<"3"<<endl;
+
 
   //initiate the shader program
   if(pipelineProgram->Init(shaderBasePath)!=0){
@@ -562,6 +579,7 @@ void initScene(int argc, char *argv[])
 
   //unbind vao
   glBindVertexArray(0);
+  cout<<"4"<<endl;
 
 }
 
