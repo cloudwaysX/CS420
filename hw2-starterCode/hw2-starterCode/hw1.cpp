@@ -1,4 +1,4 @@
-﻿/*
+/*
   CSCI 420 Computer Graphics, USC
   Assignment 1: Height Fields
   C++ starter code
@@ -65,15 +65,27 @@ int windowHeight = 720;
 char windowTitle[512] = "CSCI 420 homework II";
 
 //global variables
+glm::mat4 basisMatrix;
+glm::mat4 controlMatrix;
+glm::vec4 parameterVec;
+
+//spline
 GLuint vbo;
 GLuint ebo;
 GLuint vao;
 GLuint *indices_lines;
-GLuint loc;
 std::vector<GLfloat> positions;
-glm::mat4 basisMatrix;
-glm::mat4 controlMatrix;
-glm::vec4 parameterVec;
+void bindProgram();
+
+//ground
+GLuint vao_groundTex;
+GLuint vbo_groundTex;
+std::vector<GLfloat> groundPo;
+std::vector<GLfloat> groundUV;
+GLuint groundHeight;
+GLuint groundWidth;
+GLuint groundTexHandle;
+void BindGroundTexProgram();
 
 
 
@@ -84,7 +96,9 @@ const float aspect=(float)windowWidth/(float)windowHeight;//calculate the perpec
 //program variable
 OpenGLMatrix *openGLMatrix;
 BasicPipelineProgram *pipelineProgram;
+BasicPipelineProgram *groundTexpipeline;
 GLuint program;
+GLuint groundTexProgram;
 
 // represents one control point along the spline 
 struct Point 
@@ -137,7 +151,6 @@ int loadSplines(char * argv)
 
     if (fileSpline == NULL) 
     {
-      cout<<"a"<<endl;
       printf ("can't open file\n");
       exit(1);
     }
@@ -242,14 +255,6 @@ int initTexture(const char * imageFilename, GLuint textureHandle)
 }
 
 
-
-void bindProgram(){
-    loc = glGetAttribLocation(program, "position"); 
-    glEnableVertexAttribArray(loc);
-    glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
-
-}
-
 // write a screenshot to the specified filename
 void saveScreenshot(const char * filename)
 {
@@ -266,15 +271,25 @@ void saveScreenshot(const char * filename)
 }
 
 void renderSpline(){
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
-    //glBindBuffer(GL_ARRAY_BUFFER,vbo);
-    pipelineProgram->Bind();//bind shader
-    bindProgram();
-    cout<<"5"<<endl;
-    cout<<(positions.size()/3-1)*2<<endl;
-    glDrawElements(GL_LINES,(positions.size()/3-1)*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
-    cout<<"6"<<endl;
-    //glDrawArrays(GL_LINES,0,positions.size()/3);
+  pipelineProgram->Bind();//bind shader
+  glBindVertexArray(vao);//bind vao
+  glDrawElements(GL_LINES,(positions.size()/3-1)*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+  //glDrawArrays(GL_LINES,0,positions.size()/3);
+  glBindVertexArray(0);
+}
+
+void renderGround(){
+  groundTexpipeline->Bind();
+  glActiveTexture(GL_TEXTURE0);
+  // get a handle to the "textureImage" shader variable
+  GLint h_textureImage = glGetUniformLocation(groundTexProgram, "textureImage");
+  // deem the shader variable "textureImage" to read from texture unit 0
+  glUniform1i(h_textureImage, 0);
+  glBindTexture(GL_TEXTURE_2D,groundTexHandle);
+
+  glBindVertexArray(vao_groundTex);//bind vao
+  //glDrawArrays(GL_TRIANGLES,0,6);
+  glBindVertexArray(0);
 }
 
 void doTransform()
@@ -311,15 +326,12 @@ void displayFunc()
 
   //clear buffer
   glClear(GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT);
+  glDepthMask(GL_FALSE);
+  glBindVertexArray(0);
 
   doTransform();
-
-  glBindVertexArray(vao);//bind vao
-
-  renderSpline();
-
-
-  glDisableVertexAttribArray(loc);
+  //renderSpline();
+  renderGround();
 
 
   glutSwapBuffers();
@@ -474,6 +486,8 @@ void keyboardFunc(unsigned char key, int x, int y)
   }
 }
 
+///////////////////////////////////////////////
+/////create spline
 void LoadBasisMatrix(float s) {
   float m[16] = { -1 * s, 2.0f - s, s - 2.0f, s,
                   2 * s, s - 3.0f, 3 - 2.0f * s, -1 * s,
@@ -507,7 +521,7 @@ void CalculateVertice(float step){
 
 }
 
-void CreateVerices(){
+void GenVerices(){
   LoadBasisMatrix(0.5f);
   int numOfInterval=splines[0].numControlPoints-3;
   for(int i=0;i<numOfInterval;i++){
@@ -528,34 +542,29 @@ void GenLineIndices(){
   }
 }
 
-
-
-
-void initScene(int argc, char *argv[])
-{
-
-  //initialize OpenGLMatrix and BasicPipelineProgram
-  openGLMatrix = new OpenGLMatrix();
+void initProgram(){
+  //initiate the shader program
   pipelineProgram = new BasicPipelineProgram();
+  if(pipelineProgram->Init(shaderBasePath,"basic.vertexShader.glsl", "basic.fragmentShader.glsl")!=0){
+    cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
+    exit(EXIT_FAILURE);
+  }
+  pipelineProgram->Bind();
+  //get pipeline program handle
+  program=pipelineProgram->GetProgramHandle();
+}
 
-  // Enable depth testing, then prioritize fragments closest to the camera
-  glEnable(GL_DEPTH_TEST);
+void bindProgram(){
+    GLuint loc = glGetAttribLocation(program, "position"); 
+    glEnableVertexAttribArray(loc);
+    glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
 
-  //clear the window
-  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+}
 
-  CreateVerices();
-  cout<<"1"<<endl;
-  cout<<positions.size()<<endl;
-  GenLineIndices();
-  cout<<"2"<<endl;
-
-
+void GenSpineBuffer(){
   //create VAO
   glGenVertexArrays(1,&vao);
   glBindVertexArray(vao);
-
-
   // Generate 1 vbo buffer to store all vertices information
   glGenBuffers(1, &vbo);
   glBindBuffer(GL_ARRAY_BUFFER, vbo);
@@ -565,21 +574,121 @@ void initScene(int argc, char *argv[])
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER,(positions.size()/3-1)*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
   bindProgram();//bind vao
-  cout<<"3"<<endl;
+  //unbind vao
+  glBindVertexArray(0);
+  
+}
 
-
-  //initiate the shader program
-  if(pipelineProgram->Init(shaderBasePath)!=0){
+///////////////////////////////////////////
+//////Create Ground///////////////////////
+void initGroundTexProgram(){
+  // initialize shader pipeline program for textures
+  groundTexpipeline = new BasicPipelineProgram();
+   if(groundTexpipeline->Init(shaderBasePath,"texture.vertexShader.glsl", "texture.fragmentShader.glsl")!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
   }
+  groundTexpipeline->Bind();
+  groundTexProgram = groundTexpipeline->GetProgramHandle();
+}
 
-  //get pipeline program handle
-  program=pipelineProgram->GetProgramHandle();
+void BindGroundTexProgram(){
+  GLuint loc = glGetAttribLocation(groundTexProgram, "position"); 
+  glEnableVertexAttribArray(loc);
+  glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
+  GLuint loc2=glGetAttribLocation(groundTexProgram,"texCoord");
+  glEnableVertexAttribArray(loc2);
+  glVertexAttribPointer(loc, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(groundPo.size()*sizeof(GLfloat)));
 
-  //unbind vao
+}
+
+void GenGroundVetices(){
+  //first triangle
+  //(0,0,0)
+  groundPo.push_back(0.0f);groundPo.push_back(0.0f);groundPo.push_back(0.0f);
+  //(0,0,100)
+  groundPo.push_back(100.0f);groundPo.push_back(0.0f);groundPo.push_back(-100.0f);
+  //(0,10,0)
+  groundPo.push_back(100.0f);groundPo.push_back(0.0f);groundPo.push_back(0.0f);
+
+  //secondTriangle
+  //(0,0,0)
+  groundPo.push_back(0.0f);groundPo.push_back(0.0f);groundPo.push_back(0.0f);
+  //(0,0,-100)
+  groundPo.push_back(0.0f);groundPo.push_back(0.0f);groundPo.push_back(-100.0f);
+  //(100,0,-100)
+  groundPo.push_back(100.0f);groundPo.push_back(0.0f);groundPo.push_back(-100.0f);  
+}
+
+void GenGroundUV(){
+  //(0,0)
+  groundUV.push_back(0.0f);groundUV.push_back(0.0f);
+  //(1,1)
+  groundUV.push_back(1.0f);groundUV.push_back(1.0f);
+  //(1,0)
+  groundUV.push_back(1.0f);groundUV.push_back(0.0f);
+
+  //(0,0)
+  groundUV.push_back(0.0f);groundUV.push_back(0.0f);
+  //(0,1)
+  groundUV.push_back(0.0f);groundUV.push_back(1.0f);
+  //(1,1)
+  groundUV.push_back(1.0f);groundUV.push_back(1.0f);  
+
+}
+
+void GenGroundBuffer(){
+  //create VAO
+  glGenVertexArrays(1,&vao_groundTex);
+  glBindVertexArray(vao_groundTex);
+  //create VBO
+  // Generate 1 vbo buffer to store all vertices information
+  glGenBuffers(1, &vbo_groundTex);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo_groundTex);
+  glBufferData(GL_ARRAY_BUFFER,(groundPo.size()+groundUV.size())*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER,0,groundPo.size()*sizeof(GLfloat),groundPo.data());//upload position data
+  glBufferSubData(GL_ARRAY_BUFFER,groundPo.size()*sizeof(GLfloat),groundUV.size()*sizeof(GLfloat),groundUV.data());//upload UV data
+
+  BindGroundTexProgram();
+
   glBindVertexArray(0);
-  cout<<"4"<<endl;
+}
+
+void GroundTexInit(){
+  glGenTextures(1,&groundTexHandle);
+  if(initTexture("../Texture/groundTex.jpg",groundTexHandle)!=0){
+    printf("Error loading the texture image.\n");
+    exit(EXIT_FAILURE);
+  }
+
+}
+
+void initScene(int argc, char *argv[])
+{
+
+  //initialize OpenGLMatrix 
+  openGLMatrix = new OpenGLMatrix();
+
+  // Enable depth testing, then prioritize fragments closest to the camera
+  glEnable(GL_DEPTH_TEST);
+
+  //clear the window
+  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+  /////////////create spline///////////////////
+  GenVerices();
+  GenLineIndices();
+  initProgram();
+  GenSpineBuffer();
+  ///////////finish creating spline/////////////
+
+  ///////////create ground/////////////////////
+  initGroundTexProgram();
+  GroundTexInit();
+  GenGroundVetices();
+  GenGroundUV();
+  GenGroundBuffer();
+
+
 
 }
 
