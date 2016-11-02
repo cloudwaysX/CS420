@@ -20,6 +20,8 @@
 #include "imageIO.h"
 #include "openGLMatrix.h"
 #include "basicPipelineProgram.h"
+#include "groundPipelineProgram.h"
+#include "skyPipelineProgram.h"
 #include <glm/glm.hpp>
 #include <glm/gtx/transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -74,18 +76,28 @@ GLuint vbo;
 GLuint ebo;
 GLuint vao;
 GLuint *indices_lines;
-std::vector<GLfloat> positions;
+vector<GLfloat> positions;
 void bindProgram();
 
 //ground
 GLuint vao_groundTex;
 GLuint vbo_groundTex;
-std::vector<GLfloat> groundPo;
-std::vector<GLfloat> groundUV;
-GLuint groundHeight;
-GLuint groundWidth;
+vector<GLfloat> groundPos;
+vector<GLfloat> groundUVs;
 GLuint groundTexHandle;
 void BindGroundTexProgram();
+
+//sky
+GLuint vao_skyTex;
+GLuint vbo_skyTex;
+GLuint ebo_skyTex;
+vector<GLfloat> skyPos;
+vector<GLfloat> skyUVs;
+vector<GLuint> skyIndices;
+GLuint skyTexHandle;
+void BindSkyTexProgram();
+
+
 
 
 
@@ -96,9 +108,11 @@ const float aspect=(float)windowWidth/(float)windowHeight;//calculate the perpec
 //program variable
 OpenGLMatrix *openGLMatrix;
 BasicPipelineProgram *pipelineProgram;
-BasicPipelineProgram *groundTexpipeline;
+GroundPipelineProgram *groundTexpipeline;
+SkyPipelineProgram *skyTexPipeline;
 GLuint program;
 GLuint groundTexProgram;
+GLuint skyTexProgram;
 
 // represents one control point along the spline 
 struct Point 
@@ -254,6 +268,13 @@ int initTexture(const char * imageFilename, GLuint textureHandle)
   return 0;
 }
 
+void setTextureUnit(GLint unit, GLuint the_program){
+  glActiveTexture(unit);
+
+  GLint h_textureImage=glGetUniformLocation(the_program,"textureImage");
+  glUniform1i(h_textureImage,unit-GL_TEXTURE0);
+}
+
 
 // write a screenshot to the specified filename
 void saveScreenshot(const char * filename)
@@ -279,16 +300,22 @@ void renderSpline(){
 }
 
 void renderGround(){
-  groundTexpipeline->Bind();
-  glActiveTexture(GL_TEXTURE0);
-  // get a handle to the "textureImage" shader variable
-  GLint h_textureImage = glGetUniformLocation(groundTexProgram, "textureImage");
-  // deem the shader variable "textureImage" to read from texture unit 0
-  glUniform1i(h_textureImage, 0);
-  glBindTexture(GL_TEXTURE_2D,groundTexHandle);
+  //groundTexpipeline->Bind();
+  //setTextureUnit(GL_TEXTURE0,groundTexProgram);
+  //glBindTexture(GL_TEXTURE_2D,groundTexHandle);
 
   glBindVertexArray(vao_groundTex);//bind vao
-  //glDrawArrays(GL_TRIANGLES,0,6);
+  glDrawArrays(GL_TRIANGLES,0,6);
+  glBindVertexArray(0);
+}
+
+void renderSky(){
+  skyTexPipeline->Bind();
+  setTextureUnit(GL_TEXTURE0+1,skyTexProgram);
+  glBindVertexArray(0);
+
+  glBindVertexArray(vao_skyTex);
+  glDrawElements(GL_TRIANGLES,36,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
   glBindVertexArray(0);
 }
 
@@ -315,8 +342,12 @@ void doTransform()
   openGLMatrix->GetMatrix(m_perspective);
 
   //upload the transformation to shader
-  pipelineProgram->SetModelViewMatrix(m_view);
-  pipelineProgram->SetProjectionMatrix(m_perspective);
+  //pipelineProgram->SetModelViewMatrix(m_view);
+  //pipelineProgram->SetProjectionMatrix(m_perspective);
+  //groundTexpipeline->SetModelViewMatrix(m_view);
+  //groundTexpipeline->SetProjectionMatrix(m_perspective);
+  skyTexPipeline->SetModelViewMatrix(m_view);
+  skyTexPipeline->SetProjectionMatrix(m_perspective);
 }
 
 void displayFunc()
@@ -330,8 +361,12 @@ void displayFunc()
   glBindVertexArray(0);
 
   doTransform();
+
+  //renderGround();
+
   //renderSpline();
-  renderGround();
+
+  renderSky();
 
 
   glutSwapBuffers();
@@ -583,7 +618,7 @@ void GenSpineBuffer(){
 //////Create Ground///////////////////////
 void initGroundTexProgram(){
   // initialize shader pipeline program for textures
-  groundTexpipeline = new BasicPipelineProgram();
+  groundTexpipeline = new GroundPipelineProgram();
    if(groundTexpipeline->Init(shaderBasePath,"texture.vertexShader.glsl", "texture.fragmentShader.glsl")!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
@@ -596,44 +631,44 @@ void BindGroundTexProgram(){
   GLuint loc = glGetAttribLocation(groundTexProgram, "position"); 
   glEnableVertexAttribArray(loc);
   glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
-  GLuint loc2=glGetAttribLocation(groundTexProgram,"texCoord");
-  glEnableVertexAttribArray(loc2);
-  glVertexAttribPointer(loc, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(groundPo.size()*sizeof(GLfloat)));
+  //GLuint loc2=glGetAttribLocation(groundTexProgram,"texCoord");
+  //glEnableVertexAttribArray(loc2);
+  //glVertexAttribPointer(loc, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(groundPos.size()*sizeof(GLfloat)));
 
 }
 
 void GenGroundVetices(){
   //first triangle
   //(0,0,0)
-  groundPo.push_back(0.0f);groundPo.push_back(0.0f);groundPo.push_back(0.0f);
-  //(0,0,100)
-  groundPo.push_back(100.0f);groundPo.push_back(0.0f);groundPo.push_back(-100.0f);
+  groundPos.push_back(-50.0f);groundPos.push_back(-1.0f);groundPos.push_back(50.0f);
+  //(0,0,-100)
+  groundPos.push_back(50.0f);groundPos.push_back(-1.0f);groundPos.push_back(50.0f);
   //(0,10,0)
-  groundPo.push_back(100.0f);groundPo.push_back(0.0f);groundPo.push_back(0.0f);
+  groundPos.push_back(-50.0f);groundPos.push_back(-1.0f);groundPos.push_back(-50.0f);
 
   //secondTriangle
   //(0,0,0)
-  groundPo.push_back(0.0f);groundPo.push_back(0.0f);groundPo.push_back(0.0f);
+  groundPos.push_back(50.0f);groundPos.push_back(-1.0f);groundPos.push_back(50.0f);
   //(0,0,-100)
-  groundPo.push_back(0.0f);groundPo.push_back(0.0f);groundPo.push_back(-100.0f);
+  groundPos.push_back(-50.0f);groundPos.push_back(-1.0f);groundPos.push_back(-50.0f);
   //(100,0,-100)
-  groundPo.push_back(100.0f);groundPo.push_back(0.0f);groundPo.push_back(-100.0f);  
+  groundPos.push_back(50.0f);groundPos.push_back(-1.0f);groundPos.push_back(-50.0f);
 }
 
 void GenGroundUV(){
   //(0,0)
-  groundUV.push_back(0.0f);groundUV.push_back(0.0f);
+  groundUVs.push_back(0.0f);groundUVs.push_back(0.0f);
   //(1,1)
-  groundUV.push_back(1.0f);groundUV.push_back(1.0f);
+  groundUVs.push_back(1.0f);groundUVs.push_back(0.0f);
   //(1,0)
-  groundUV.push_back(1.0f);groundUV.push_back(0.0f);
+  groundUVs.push_back(0.0f);groundUVs.push_back(1.0f);
 
   //(0,0)
-  groundUV.push_back(0.0f);groundUV.push_back(0.0f);
+  groundUVs.push_back(1.0f);groundUVs.push_back(0.0f);
   //(0,1)
-  groundUV.push_back(0.0f);groundUV.push_back(1.0f);
+  groundUVs.push_back(0.0f);groundUVs.push_back(1.0f);
   //(1,1)
-  groundUV.push_back(1.0f);groundUV.push_back(1.0f);  
+  groundUVs.push_back(1.0f);groundUVs.push_back(1.0f);  
 
 }
 
@@ -645,9 +680,10 @@ void GenGroundBuffer(){
   // Generate 1 vbo buffer to store all vertices information
   glGenBuffers(1, &vbo_groundTex);
   glBindBuffer(GL_ARRAY_BUFFER, vbo_groundTex);
-  glBufferData(GL_ARRAY_BUFFER,(groundPo.size()+groundUV.size())*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
-  glBufferSubData(GL_ARRAY_BUFFER,0,groundPo.size()*sizeof(GLfloat),groundPo.data());//upload position data
-  glBufferSubData(GL_ARRAY_BUFFER,groundPo.size()*sizeof(GLfloat),groundUV.size()*sizeof(GLfloat),groundUV.data());//upload UV data
+  //glBufferData(GL_ARRAY_BUFFER,groundPos.size()*sizeof(GLfloat),groundPos.data(),GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER,(groundPos.size()+groundUVs.size())*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER,0,groundPos.size()*sizeof(GLfloat),groundPos.data());//upload position data
+  glBufferSubData(GL_ARRAY_BUFFER,groundPos.size()*sizeof(GLfloat),groundUVs.size()*sizeof(GLfloat),groundUVs.data());//upload UV data*/
 
   BindGroundTexProgram();
 
@@ -662,6 +698,102 @@ void GroundTexInit(){
   }
 
 }
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+//////////////Create Skybox///////////////////
+void GenSkyVertices(){
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49); 
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(49);
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(49);
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(49);
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(49);
+}
+
+void GenSkyIndices(){
+  skyIndices.push_back(0);skyIndices.push_back(1);skyIndices.push_back(2);
+  skyIndices.push_back(0);skyIndices.push_back(2);skyIndices.push_back(3);
+  skyIndices.push_back(4);skyIndices.push_back(5);skyIndices.push_back(6);
+  skyIndices.push_back(4);skyIndices.push_back(6);skyIndices.push_back(7);
+
+  skyIndices.push_back(0);skyIndices.push_back(3);skyIndices.push_back(4);
+  skyIndices.push_back(3);skyIndices.push_back(4);skyIndices.push_back(7);
+  skyIndices.push_back(1);skyIndices.push_back(2);skyIndices.push_back(5);
+  skyIndices.push_back(2);skyIndices.push_back(5);skyIndices.push_back(6);
+
+  skyIndices.push_back(3);skyIndices.push_back(2);skyIndices.push_back(6);
+  skyIndices.push_back(3);skyIndices.push_back(7);skyIndices.push_back(6);
+  skyIndices.push_back(0);skyIndices.push_back(1);skyIndices.push_back(5);
+  skyIndices.push_back(0);skyIndices.push_back(4);skyIndices.push_back(5);
+}
+
+void GenSkyUV(){
+  skyUVs.push_back(0);skyUVs.push_back(1);
+  skyUVs.push_back(1);skyUVs.push_back(1);
+  skyUVs.push_back(1);skyUVs.push_back(0);
+  skyUVs.push_back(0);skyUVs.push_back(0);
+  skyUVs.push_back(0);skyUVs.push_back(1);
+  skyUVs.push_back(1);skyUVs.push_back(1);
+  skyUVs.push_back(1);skyUVs.push_back(0);
+  skyUVs.push_back(0);skyUVs.push_back(0);
+}
+
+void initSkyTexProgram(){
+  // initialize shader pipeline program for textures
+  skyTexPipeline = new SkyPipelineProgram();
+   if(skyTexPipeline->Init(shaderBasePath,"texture.vertexShader.glsl", "texture.fragmentShader.glsl")!=0){
+    cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
+    exit(EXIT_FAILURE);
+  }
+  skyTexPipeline->Bind();
+  skyTexProgram = skyTexPipeline->GetProgramHandle();
+}
+
+void BindSkyTexProgram(){
+  GLuint loc = glGetAttribLocation(skyTexProgram, "position"); 
+  glEnableVertexAttribArray(loc);
+  glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
+  GLuint loc2=glGetAttribLocation(skyTexProgram,"texCoord");
+  glEnableVertexAttribArray(loc2);
+  glVertexAttribPointer(loc, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(skyPos.size()*sizeof(GLfloat)));
+
+}
+
+void GenSkyBuffer(){
+  //create VAO
+  glGenVertexArrays(1,&vao_skyTex);
+  glBindVertexArray(vao_skyTex);
+  //create VBO
+  // Generate 1 vbo buffer to store all vertices information
+  glGenBuffers(1, &vbo_skyTex);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo_skyTex);
+  //glBufferData(GL_ARRAY_BUFFER,groundPos.size()*sizeof(GLfloat),groundPos.data(),GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER,(skyPos.size()+skyUVs.size())*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER,0,skyPos.size()*sizeof(GLfloat),skyPos.data());//upload position data
+  glBufferSubData(GL_ARRAY_BUFFER,skyPos.size()*sizeof(GLfloat),skyUVs.size()*sizeof(GLfloat),skyUVs.data());//upload UV data*/
+
+  glGenBuffers(1,&ebo_skyTex);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_skyTex);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER,36,skyIndices.data(),GL_STATIC_DRAW);
+
+  BindSkyTexProgram();
+
+  glBindVertexArray(0);
+}
+
+void SkyTexInit(){
+  glGenTextures(1,&skyTexHandle);
+  if(initTexture("../Texture/skyTex.jpg",skyTexHandle)!=0){
+    printf("Error loading the texture image.\n");
+    exit(EXIT_FAILURE);
+  }
+
+}
+
 
 void initScene(int argc, char *argv[])
 {
@@ -675,18 +807,27 @@ void initScene(int argc, char *argv[])
   //clear the window
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   /////////////create spline///////////////////
-  GenVerices();
-  GenLineIndices();
-  initProgram();
-  GenSpineBuffer();
+  //GenVerices();
+  //GenLineIndices();
+  //initProgram();
+  //GenSpineBuffer();
   ///////////finish creating spline/////////////
 
   ///////////create ground/////////////////////
-  initGroundTexProgram();
+  /*initGroundTexProgram();
   GroundTexInit();
   GenGroundVetices();
   GenGroundUV();
   GenGroundBuffer();
+  */
+
+  //////////create Sky/////////////////////////
+  initSkyTexProgram();
+  SkyTexInit();
+  GenSkyVertices();
+  GenSkyUV();
+  GenSkyIndices();
+  GenSkyBuffer();
 
 
 
