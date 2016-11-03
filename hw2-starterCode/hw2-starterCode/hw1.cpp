@@ -20,8 +20,7 @@
 #include "imageIO.h"
 #include "openGLMatrix.h"
 #include "basicPipelineProgram.h"
-#include "groundPipelineProgram.h"
-#include "skyPipelineProgram.h"
+#include "secondPipelineProgram.h"
 #include <glm/glm.hpp>
 #include <glm/gtx/transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -67,9 +66,7 @@ int windowHeight = 720;
 char windowTitle[512] = "CSCI 420 homework II";
 
 //global variables
-glm::mat4 basisMatrix;
-glm::mat4 controlMatrix;
-glm::vec4 parameterVec;
+OpenGLMatrix *openGLMatrix;
 
 //spline
 GLuint vbo;
@@ -77,7 +74,21 @@ GLuint ebo;
 GLuint vao;
 GLuint *indices_lines;
 vector<GLfloat> positions;
+BasicPipelineProgram *pipelineProgram;
+GLuint program;
 void bindProgram();
+glm::mat4 basisMatrix;
+glm::mat4 controlMatrix;
+glm::vec4 parameterVec;
+
+//moving camera
+GLuint curPo_index;
+glm::vec4 tangParameterVec;
+vector<glm::vec3> tangVec;
+const GLuint POSITION=0;
+const GLuint TANGENT=1;
+const glm::vec3 V_DOWN(0,-1,0);//people upside down
+const glm::vec3 V_UP(0,1,0);//people not upside down
 
 //ground
 GLuint vao_groundTex;
@@ -97,22 +108,14 @@ vector<GLuint> skyIndices;
 GLuint skyTexHandle;
 void BindSkyTexProgram();
 
-
-
-
+//for both sky and ground
+SecondPipelineProgram *texPipeline;
+GLuint texProgram;
 
 //Set some constant parameter for the window view
 const float fovy = 60;//the view angle is 45 degrees
 const float aspect=(float)windowWidth/(float)windowHeight;//calculate the perpective 
 
-//program variable
-OpenGLMatrix *openGLMatrix;
-BasicPipelineProgram *pipelineProgram;
-GroundPipelineProgram *groundTexpipeline;
-SkyPipelineProgram *skyTexPipeline;
-GLuint program;
-GLuint groundTexProgram;
-GLuint skyTexProgram;
 
 // represents one control point along the spline 
 struct Point 
@@ -268,10 +271,10 @@ int initTexture(const char * imageFilename, GLuint textureHandle)
   return 0;
 }
 
-void setTextureUnit(GLint unit, GLuint the_program){
+void setTextureUnit(GLint unit){
   glActiveTexture(unit);
 
-  GLint h_textureImage=glGetUniformLocation(the_program,"textureImage");
+  GLint h_textureImage=glGetUniformLocation(texProgram,"textureImage");
   glUniform1i(h_textureImage,unit-GL_TEXTURE0);
 }
 
@@ -295,14 +298,13 @@ void renderSpline(){
   pipelineProgram->Bind();//bind shader
   glBindVertexArray(vao);//bind vao
   glDrawElements(GL_LINES,(positions.size()/3-1)*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
-  //glDrawArrays(GL_LINES,0,positions.size()/3);
   glBindVertexArray(0);
 }
 
 void renderGround(){
-  //groundTexpipeline->Bind();
-  //setTextureUnit(GL_TEXTURE0,groundTexProgram);
-  //glBindTexture(GL_TEXTURE_2D,groundTexHandle);
+  texPipeline->Bind();
+  setTextureUnit(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D,groundTexHandle);
 
   glBindVertexArray(vao_groundTex);//bind vao
   glDrawArrays(GL_TRIANGLES,0,6);
@@ -310,21 +312,50 @@ void renderGround(){
 }
 
 void renderSky(){
-  skyTexPipeline->Bind();
-  setTextureUnit(GL_TEXTURE0+1,skyTexProgram);
-  glBindVertexArray(0);
+  texPipeline->Bind();
+  setTextureUnit(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D,skyTexHandle);
 
   glBindVertexArray(vao_skyTex);
   glDrawElements(GL_TRIANGLES,36,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
   glBindVertexArray(0);
 }
 
+
+///////////create moving Camera///////////////////////////////
+
+void SetLookAt(){
+  GLfloat eyeX=positions.at(curPo_index*3);
+  GLfloat eyeY=positions.at(curPo_index*3+1);
+  GLfloat eyeZ=positions.at(curPo_index*3+2);
+
+  glm::vec3 V;
+  if(eyeY>=0){
+    V=V_DOWN;
+  }
+  else{
+    V=V_UP;
+  }
+  glm::vec3 center=tangVec.at(curPo_index);
+  glm::vec3 up=glm::cross(center,V);
+  up=glm::cross(up,center);
+  cout<<up[0]<<" "<<up[1]<<" "<<up[2]<<endl;
+  openGLMatrix->LookAt(eyeX, eyeY, eyeZ, center[0]+eyeX, center[1]+eyeY, center[2]+eyeZ, up[0], up[1], up[2]); 
+  curPo_index+=30; 
+  if(curPo_index>=positions.size()/3){
+    //cout<<curPo_index<<endl;
+    curPo_index=0;
+  }
+}
+
+
 void doTransform()
 {
     //Calculate the transform matrix and store it into m_view
   openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
   openGLMatrix->LoadIdentity();
-  openGLMatrix->LookAt(0.0f, 0.0f, 2.0f, 0.0f, 0.0f, -10.0f, 0.0f, 1.0f, 0.0f);  
+  SetLookAt(); 
+  //openGLMatrix->LookAt(0.0f, 0.0f, 2.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
   openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
   openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
   openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
@@ -342,12 +373,10 @@ void doTransform()
   openGLMatrix->GetMatrix(m_perspective);
 
   //upload the transformation to shader
-  //pipelineProgram->SetModelViewMatrix(m_view);
-  //pipelineProgram->SetProjectionMatrix(m_perspective);
-  //groundTexpipeline->SetModelViewMatrix(m_view);
-  //groundTexpipeline->SetProjectionMatrix(m_perspective);
-  skyTexPipeline->SetModelViewMatrix(m_view);
-  skyTexPipeline->SetProjectionMatrix(m_perspective);
+  pipelineProgram->SetModelViewMatrix(m_view);
+  pipelineProgram->SetProjectionMatrix(m_perspective);
+  texPipeline->SetModelViewMatrix(m_view);
+  texPipeline->SetProjectionMatrix(m_perspective);
 }
 
 void displayFunc()
@@ -360,14 +389,14 @@ void displayFunc()
   glDepthMask(GL_FALSE);
   glBindVertexArray(0);
 
+  //doTransform();
+  //renderSky();
+
+  //doTransform();
+  renderGround();
+
   doTransform();
-
-  //renderGround();
-
-  //renderSpline();
-
-  renderSky();
-
+  renderSpline();
 
   glutSwapBuffers();
 
@@ -511,6 +540,7 @@ void keyboardFunc(unsigned char key, int x, int y)
 
     case ' ':
       cout << "You pressed the spacebar." << endl;
+      cout<<curPo_index<<endl;
 
     break;
 
@@ -545,23 +575,34 @@ void LoadParamter(float u){
   parameterVec = glm::make_vec4(v);
 }
 
-void CalculateVertice(float step){
-  for(float u=0;u<=1;u+=step){
-    LoadParamter(u);
-    glm::vec4 temp=controlMatrix*basisMatrix*parameterVec;
-    positions.push_back(temp[0]);
-    positions.push_back(temp[1]);
-    positions.push_back(temp[2]);
-  }
-
+void LoadTangParamter(float u){
+  float v[4]={3*pow(u,2),2*u,1.0f,0.0f};
+  tangParameterVec = glm::make_vec4(v);
 }
 
-void GenVerices(){
+void CalculateVertice(float step,GLuint mode){
+  for(float u=0;u<=1;u+=step){
+    if(mode==TANGENT){
+      LoadTangParamter(u);
+      glm::vec3 temp(controlMatrix*basisMatrix*tangParameterVec);
+      tangVec.push_back(temp/glm::length(temp));
+    }
+    else{
+      LoadParamter(u);
+      glm::vec3 temp(controlMatrix*basisMatrix*parameterVec);
+      positions.push_back(temp[0]);
+      positions.push_back(temp[1]);
+      positions.push_back(temp[2]);
+    }
+  }
+}
+
+void GenVerices(GLuint mode){
   LoadBasisMatrix(0.5f);
   int numOfInterval=splines[0].numControlPoints-3;
   for(int i=0;i<numOfInterval;i++){
     LoadControlMatrix(splines[0].points[i],splines[0].points[i+1],splines[0].points[i+2],splines[0].points[i+3]);
-    CalculateVertice(0.001f);
+    CalculateVertice(0.001f,mode);
   }
 
 }
@@ -580,7 +621,7 @@ void GenLineIndices(){
 void initProgram(){
   //initiate the shader program
   pipelineProgram = new BasicPipelineProgram();
-  if(pipelineProgram->Init(shaderBasePath,"basic.vertexShader.glsl", "basic.fragmentShader.glsl")!=0){
+  if(pipelineProgram->Init(shaderBasePath)!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
   }
@@ -611,48 +652,53 @@ void GenSpineBuffer(){
   bindProgram();//bind vao
   //unbind vao
   glBindVertexArray(0);
-  
 }
+//////////////////////////////////////////////////////////////////////
 
-///////////////////////////////////////////
-//////Create Ground///////////////////////
-void initGroundTexProgram(){
+
+/////////////////////////////////////////////
+//////Generate Texture Program and bind it//////////
+void InitTexProgram(){
   // initialize shader pipeline program for textures
-  groundTexpipeline = new GroundPipelineProgram();
-   if(groundTexpipeline->Init(shaderBasePath,"texture.vertexShader.glsl", "texture.fragmentShader.glsl")!=0){
+  texPipeline = new SecondPipelineProgram();
+   if(texPipeline->Init(shaderBasePath)!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
   }
-  groundTexpipeline->Bind();
-  groundTexProgram = groundTexpipeline->GetProgramHandle();
+  texPipeline->Bind();
+  texProgram = texPipeline->GetProgramHandle();
 }
 
-void BindGroundTexProgram(){
-  GLuint loc = glGetAttribLocation(groundTexProgram, "position"); 
+void BindTexProgram(){
+  GLuint loc = glGetAttribLocation(texProgram, "position"); 
   glEnableVertexAttribArray(loc);
   glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
-  //GLuint loc2=glGetAttribLocation(groundTexProgram,"texCoord");
-  //glEnableVertexAttribArray(loc2);
-  //glVertexAttribPointer(loc, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(groundPos.size()*sizeof(GLfloat)));
+  GLuint loc2=glGetAttribLocation(texProgram,"texCoord");
+  glEnableVertexAttribArray(loc2);
+  glVertexAttribPointer(loc2, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(groundPos.size()*sizeof(GLfloat)));
 
 }
+
+
+///////////////////////////////////////////
+//////Create Ground///////////////////////
 
 void GenGroundVetices(){
   //first triangle
   //(0,0,0)
-  groundPos.push_back(-50.0f);groundPos.push_back(-1.0f);groundPos.push_back(50.0f);
+  groundPos.push_back(-50.0f);groundPos.push_back(-10.0f);groundPos.push_back(50.0f);
   //(0,0,-100)
-  groundPos.push_back(50.0f);groundPos.push_back(-1.0f);groundPos.push_back(50.0f);
+  groundPos.push_back(50.0f);groundPos.push_back(-10.0f);groundPos.push_back(50.0f);
   //(0,10,0)
-  groundPos.push_back(-50.0f);groundPos.push_back(-1.0f);groundPos.push_back(-50.0f);
+  groundPos.push_back(-50.0f);groundPos.push_back(-10.0f);groundPos.push_back(-50.0f);
 
   //secondTriangle
   //(0,0,0)
-  groundPos.push_back(50.0f);groundPos.push_back(-1.0f);groundPos.push_back(50.0f);
+  groundPos.push_back(50.0f);groundPos.push_back(-10.0f);groundPos.push_back(50.0f);
   //(0,0,-100)
-  groundPos.push_back(-50.0f);groundPos.push_back(-1.0f);groundPos.push_back(-50.0f);
+  groundPos.push_back(-50.0f);groundPos.push_back(-10.0f);groundPos.push_back(-50.0f);
   //(100,0,-100)
-  groundPos.push_back(50.0f);groundPos.push_back(-1.0f);groundPos.push_back(-50.0f);
+  groundPos.push_back(50.0f);groundPos.push_back(-10.0f);groundPos.push_back(-50.0f);
 }
 
 void GenGroundUV(){
@@ -685,7 +731,7 @@ void GenGroundBuffer(){
   glBufferSubData(GL_ARRAY_BUFFER,0,groundPos.size()*sizeof(GLfloat),groundPos.data());//upload position data
   glBufferSubData(GL_ARRAY_BUFFER,groundPos.size()*sizeof(GLfloat),groundUVs.size()*sizeof(GLfloat),groundUVs.data());//upload UV data*/
 
-  BindGroundTexProgram();
+  BindTexProgram();
 
   glBindVertexArray(0);
 }
@@ -717,8 +763,6 @@ void GenSkyVertices(){
 void GenSkyIndices(){
   skyIndices.push_back(0);skyIndices.push_back(1);skyIndices.push_back(2);
   skyIndices.push_back(0);skyIndices.push_back(2);skyIndices.push_back(3);
-  skyIndices.push_back(4);skyIndices.push_back(5);skyIndices.push_back(6);
-  skyIndices.push_back(4);skyIndices.push_back(6);skyIndices.push_back(7);
 
   skyIndices.push_back(0);skyIndices.push_back(3);skyIndices.push_back(4);
   skyIndices.push_back(3);skyIndices.push_back(4);skyIndices.push_back(7);
@@ -731,36 +775,16 @@ void GenSkyIndices(){
   skyIndices.push_back(0);skyIndices.push_back(4);skyIndices.push_back(5);
 }
 
+//texture interpolation
 void GenSkyUV(){
-  skyUVs.push_back(0);skyUVs.push_back(1);
-  skyUVs.push_back(1);skyUVs.push_back(1);
-  skyUVs.push_back(1);skyUVs.push_back(0);
-  skyUVs.push_back(0);skyUVs.push_back(0);
-  skyUVs.push_back(0);skyUVs.push_back(1);
-  skyUVs.push_back(1);skyUVs.push_back(1);
-  skyUVs.push_back(1);skyUVs.push_back(0);
-  skyUVs.push_back(0);skyUVs.push_back(0);
-}
-
-void initSkyTexProgram(){
-  // initialize shader pipeline program for textures
-  skyTexPipeline = new SkyPipelineProgram();
-   if(skyTexPipeline->Init(shaderBasePath,"texture.vertexShader.glsl", "texture.fragmentShader.glsl")!=0){
-    cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
-    exit(EXIT_FAILURE);
-  }
-  skyTexPipeline->Bind();
-  skyTexProgram = skyTexPipeline->GetProgramHandle();
-}
-
-void BindSkyTexProgram(){
-  GLuint loc = glGetAttribLocation(skyTexProgram, "position"); 
-  glEnableVertexAttribArray(loc);
-  glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
-  GLuint loc2=glGetAttribLocation(skyTexProgram,"texCoord");
-  glEnableVertexAttribArray(loc2);
-  glVertexAttribPointer(loc, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(skyPos.size()*sizeof(GLfloat)));
-
+  skyUVs.push_back(0);skyUVs.push_back(1);//0
+  skyUVs.push_back(1);skyUVs.push_back(1);//1
+  skyUVs.push_back(1);skyUVs.push_back(0);//2
+  skyUVs.push_back(0);skyUVs.push_back(0);//3
+  skyUVs.push_back(0);skyUVs.push_back(0);//4
+  skyUVs.push_back(1);skyUVs.push_back(0);//5
+  skyUVs.push_back(1);skyUVs.push_back(0);//6
+  skyUVs.push_back(0);skyUVs.push_back(0);//7
 }
 
 void GenSkyBuffer(){
@@ -778,16 +802,16 @@ void GenSkyBuffer(){
 
   glGenBuffers(1,&ebo_skyTex);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_skyTex);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER,36,skyIndices.data(),GL_STATIC_DRAW);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER,36*sizeof(GLuint),skyIndices.data(),GL_STATIC_DRAW);
 
-  BindSkyTexProgram();
+  BindTexProgram();
 
   glBindVertexArray(0);
 }
 
 void SkyTexInit(){
   glGenTextures(1,&skyTexHandle);
-  if(initTexture("../Texture/skyTex.jpg",skyTexHandle)!=0){
+  if(initTexture("../Texture/blue.jpg",skyTexHandle)!=0){
     printf("Error loading the texture image.\n");
     exit(EXIT_FAILURE);
   }
@@ -807,30 +831,30 @@ void initScene(int argc, char *argv[])
   //clear the window
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   /////////////create spline///////////////////
-  //GenVerices();
-  //GenLineIndices();
-  //initProgram();
-  //GenSpineBuffer();
+  GenVerices(POSITION);
+  GenLineIndices();
+  initProgram();
+  GenSpineBuffer();
   ///////////finish creating spline/////////////
 
+
+  InitTexProgram();
   ///////////create ground/////////////////////
-  /*initGroundTexProgram();
-  GroundTexInit();
   GenGroundVetices();
   GenGroundUV();
   GenGroundBuffer();
-  */
+  GroundTexInit();
 
   //////////create Sky/////////////////////////
-  initSkyTexProgram();
-  SkyTexInit();
   GenSkyVertices();
   GenSkyUV();
   GenSkyIndices();
   GenSkyBuffer();
+  SkyTexInit();
 
-
-
+  ////////moving camera/////////////////////
+  curPo_index=0;
+  GenVerices(TANGENT);
 }
 
 int main(int argc, char *argv[])
