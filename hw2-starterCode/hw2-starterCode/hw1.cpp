@@ -83,12 +83,18 @@ glm::mat4 controlMatrix;
 glm::vec4 parameterVec;
 
 //cross vertices
-std::vector<GLfloat> crossVerticesPos;
+std::vector<GLfloat> crossVerticesPos_left;
+std::vector<GLfloat> crossVerticesPos_right;
 std::vector<GLuint> crossIndices;
-GLuint vbo_cross;
-GLuint vao_cross;
-GLuint ebo_cross;
+GLuint vbo_cross_left;
+GLuint vao_cross_left;
+GLuint ebo_cross_left;
+GLuint vbo_cross_right;
+GLuint vao_cross_right;
+GLuint ebo_cross_right;
 vector<GLfloat> color_cross;
+const GLuint LEFTRAIL=0;
+const GLuint RIGHTRAIL=1;
 
 //moving camera
 GLuint curPo_index;
@@ -308,14 +314,11 @@ void renderSpline(){
   glBindVertexArray(vao);//bind vao
   glDrawElements(GL_LINES,(positions.size()/3-1)*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
   glBindVertexArray(0);
-  pipelineProgram->Bind();//bind shader
-  glBindVertexArray(vao_cross);
-  //cout<<crossIndices.size()<<endl;
-  //cout<<crossVerticesPos.size()<<endl;
-  //cout<<tangVec.size()<<endl;
+  glBindVertexArray(vao_cross_left);
   glDrawElements(GL_TRIANGLE_STRIP,crossIndices.size(),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
-  //glDrawElements(GL_LINES,crossIndices.size(),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
-  //glDrawArrays(GL_LINES,0,crossVerticesPos.size());
+  glBindVertexArray(0);
+  glBindVertexArray(vao_cross_right);
+  glDrawElements(GL_TRIANGLE_STRIP,crossIndices.size(),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
   glBindVertexArray(0);
 }
 
@@ -615,7 +618,7 @@ void CalculateVertice(float step,GLuint mode){
   }
 }
 
-void CalculateCrossVertices(GLuint splines_Index){
+void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVerticesPos, GLuint mode){
   GLfloat curPoX=positions.at(splines_Index*3);
   GLfloat curPoY=positions.at(splines_Index*3+1);
   GLfloat curPoZ=positions.at(splines_Index*3+2);
@@ -631,6 +634,14 @@ void CalculateCrossVertices(GLuint splines_Index){
   glm::vec3 b0=glm::cross(t0,V);
   b0=b0/glm::length(b0);
   glm::vec3 n0=glm::cross(b0,t0);
+  GLfloat railW=0.1f;
+
+  if(mode==LEFTRAIL){
+    p0=p0-railW*b0;
+  }
+  else{
+    p0=p0+railW*b0;
+  }
 
   float length_regulizar=0.01f;
   glm::vec3 v0=p0+length_regulizar*(b0-n0);
@@ -641,30 +652,15 @@ void CalculateCrossVertices(GLuint splines_Index){
   crossVerticesPos.push_back(v0[0]);
   crossVerticesPos.push_back(v0[1]);
   crossVerticesPos.push_back(v0[2]);
-  color_cross.push_back(0.5f);
-  color_cross.push_back(0.5f);
-  color_cross.push_back(0.5f);
   crossVerticesPos.push_back(v1[0]);
   crossVerticesPos.push_back(v1[1]);
   crossVerticesPos.push_back(v1[2]);
-  color_cross.push_back(0.5f);
-  color_cross.push_back(0.5f);
-  color_cross.push_back(0.5f);
-  //cout<<v0[0]<<" "<<v0[1]<<" "<<v0[2]<<" "<<v1[0]<<" "<<v1[1]<<" "<<v1[2]<<endl;
   crossVerticesPos.push_back(v2[0]);
   crossVerticesPos.push_back(v2[1]);
   crossVerticesPos.push_back(v2[2]);
-  color_cross.push_back(0.5f);
-  color_cross.push_back(0.5f);
-  color_cross.push_back(0.5f);
   crossVerticesPos.push_back(v3[0]);
   crossVerticesPos.push_back(v3[1]);
   crossVerticesPos.push_back(v3[2]);
-  color_cross.push_back(0.5f);
-  color_cross.push_back(0.5f);
-  color_cross.push_back(0.5f);
-  //cout<<"b0"<<glm::length(b0)<<endl;
-  //cout<<"n0"<<glm::length(n0)<<endl;
 }
 
 void GenVerices(GLuint mode){
@@ -678,7 +674,8 @@ void GenVerices(GLuint mode){
 
 void GenCrossVertices(){
   for(GLuint i=0;i<tangVec.size();i++){
-    CalculateCrossVertices(i);
+    CalculateCrossVertices(i,crossVerticesPos_left,LEFTRAIL);
+    CalculateCrossVertices(i,crossVerticesPos_right,RIGHTRAIL);
   }
 }
 
@@ -758,7 +755,7 @@ void GenSpineBuffer(){
   glBindVertexArray(0);
 }
 
-void GenCrossBuffer(){
+void GenCrossBuffer(GLuint& vao_cross,GLuint& vbo_cross,GLuint& ebo_cross, vector<GLfloat > crossVerticesPos){
   //create VAO
   glGenVertexArrays(1,&vao_cross);
   glBindVertexArray(vao_cross);
@@ -962,7 +959,8 @@ void initScene(int argc, char *argv[])
   GenCrossIndices();
   initProgram();
   GenSpineBuffer();
-  GenCrossBuffer();
+  GenCrossBuffer(vao_cross_left,vbo_cross_left,ebo_cross_left,crossVerticesPos_left);
+  GenCrossBuffer(vao_cross_right,vbo_cross_right,ebo_cross_right,crossVerticesPos_right);
   ///////////finish creating spline/////////////
 
 
