@@ -74,12 +74,21 @@ GLuint ebo;
 GLuint vao;
 GLuint *indices_lines;
 vector<GLfloat> positions;
+vector<GLfloat> color;
 BasicPipelineProgram *pipelineProgram;
 GLuint program;
 void bindProgram();
 glm::mat4 basisMatrix;
 glm::mat4 controlMatrix;
 glm::vec4 parameterVec;
+
+//cross vertices
+std::vector<GLfloat> crossVerticesPos;
+std::vector<GLuint> crossIndices;
+GLuint vbo_cross;
+GLuint vao_cross;
+GLuint ebo_cross;
+vector<GLfloat> color_cross;
 
 //moving camera
 GLuint curPo_index;
@@ -299,6 +308,15 @@ void renderSpline(){
   glBindVertexArray(vao);//bind vao
   glDrawElements(GL_LINES,(positions.size()/3-1)*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
   glBindVertexArray(0);
+  pipelineProgram->Bind();//bind shader
+  glBindVertexArray(vao_cross);
+  //cout<<crossIndices.size()<<endl;
+  //cout<<crossVerticesPos.size()<<endl;
+  //cout<<tangVec.size()<<endl;
+  glDrawElements(GL_TRIANGLE_STRIP,crossIndices.size(),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+  //glDrawElements(GL_LINES,crossIndices.size(),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+  //glDrawArrays(GL_LINES,0,crossVerticesPos.size());
+  glBindVertexArray(0);
 }
 
 void renderGround(){
@@ -338,24 +356,22 @@ void SetLookAt(){
   }
   glm::vec3 center=tangVec.at(curPo_index);
   glm::vec3 up=glm::cross(center,V);
+  up=up/glm::length(up);
   up=glm::cross(up,center);
-  cout<<up[0]<<" "<<up[1]<<" "<<up[2]<<endl;
   openGLMatrix->LookAt(eyeX, eyeY, eyeZ, center[0]+eyeX, center[1]+eyeY, center[2]+eyeZ, up[0], up[1], up[2]); 
   curPo_index+=30; 
   if(curPo_index>=positions.size()/3){
-    //cout<<curPo_index<<endl;
     curPo_index=0;
   }
 }
 
-
 void doTransform()
 {
-    //Calculate the transform matrix and store it into m_view
+  //Calculate the transform matrix and store it into m_view
   openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
   openGLMatrix->LoadIdentity();
-  SetLookAt(); 
-  //openGLMatrix->LookAt(0.0f, 0.0f, 2.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
+  //SetLookAt(); 
+  openGLMatrix->LookAt(0.0f, 0.0f, 2.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
   openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
   openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
   openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
@@ -375,8 +391,8 @@ void doTransform()
   //upload the transformation to shader
   pipelineProgram->SetModelViewMatrix(m_view);
   pipelineProgram->SetProjectionMatrix(m_perspective);
-  texPipeline->SetModelViewMatrix(m_view);
-  texPipeline->SetProjectionMatrix(m_perspective);
+  //texPipeline->SetModelViewMatrix(m_view);
+  //texPipeline->SetProjectionMatrix(m_perspective);
 }
 
 void displayFunc()
@@ -392,11 +408,12 @@ void displayFunc()
   //doTransform();
   //renderSky();
 
-  //doTransform();
-  renderGround();
-
   doTransform();
   renderSpline();
+
+  //doTransform();
+  //renderGround();
+
 
   glutSwapBuffers();
 
@@ -540,8 +557,6 @@ void keyboardFunc(unsigned char key, int x, int y)
 
     case ' ':
       cout << "You pressed the spacebar." << endl;
-      cout<<curPo_index<<endl;
-
     break;
 
     case 'x':
@@ -593,8 +608,63 @@ void CalculateVertice(float step,GLuint mode){
       positions.push_back(temp[0]);
       positions.push_back(temp[1]);
       positions.push_back(temp[2]);
+      color.push_back(0.5f);
+      color.push_back(0.5f);
+      color.push_back(0.5f);
     }
   }
+}
+
+void CalculateCrossVertices(GLuint splines_Index){
+  GLfloat curPoX=positions.at(splines_Index*3);
+  GLfloat curPoY=positions.at(splines_Index*3+1);
+  GLfloat curPoZ=positions.at(splines_Index*3+2);
+  glm::vec3 p0(curPoX,curPoY,curPoZ);
+  glm::vec3 V;
+  if(curPoY>=0){
+    V=V_DOWN;
+  }
+  else{
+    V=V_UP;
+  }
+  glm::vec3 t0=tangVec.at(splines_Index);
+  glm::vec3 b0=glm::cross(t0,V);
+  b0=b0/glm::length(b0);
+  glm::vec3 n0=glm::cross(b0,t0);
+
+  float length_regulizar=0.01f;
+  glm::vec3 v0=p0+length_regulizar*(b0-n0);
+  glm::vec3 v1=p0+length_regulizar*(b0+n0);
+  glm::vec3 v2=p0+length_regulizar*(-b0+n0);
+  glm::vec3 v3=p0+length_regulizar*(-b0-n0);
+  cout<<v0[0]-p0[0]<<" "<<v0[1]-p0[1]<<" "<<v0[2]-p0[2]<<" "<<v1[0]-p0[0]<<" "<<v1[1]-p0[1]<<" "<<v1[2]-p0[2]<<endl;
+  crossVerticesPos.push_back(v0[0]);
+  crossVerticesPos.push_back(v0[1]);
+  crossVerticesPos.push_back(v0[2]);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.5f);
+  crossVerticesPos.push_back(v1[0]);
+  crossVerticesPos.push_back(v1[1]);
+  crossVerticesPos.push_back(v1[2]);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.5f);
+  //cout<<v0[0]<<" "<<v0[1]<<" "<<v0[2]<<" "<<v1[0]<<" "<<v1[1]<<" "<<v1[2]<<endl;
+  crossVerticesPos.push_back(v2[0]);
+  crossVerticesPos.push_back(v2[1]);
+  crossVerticesPos.push_back(v2[2]);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.5f);
+  crossVerticesPos.push_back(v3[0]);
+  crossVerticesPos.push_back(v3[1]);
+  crossVerticesPos.push_back(v3[2]);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.5f);
+  //cout<<"b0"<<glm::length(b0)<<endl;
+  //cout<<"n0"<<glm::length(n0)<<endl;
 }
 
 void GenVerices(GLuint mode){
@@ -604,7 +674,12 @@ void GenVerices(GLuint mode){
     LoadControlMatrix(splines[0].points[i],splines[0].points[i+1],splines[0].points[i+2],splines[0].points[i+3]);
     CalculateVertice(0.001f,mode);
   }
+}
 
+void GenCrossVertices(){
+  for(GLuint i=0;i<tangVec.size();i++){
+    CalculateCrossVertices(i);
+  }
 }
 
 void GenLineIndices(){
@@ -615,6 +690,29 @@ void GenLineIndices(){
     //cout<<count<<endl;
     indices_lines[count++]=i;
     indices_lines[count++]=i+1;
+  }
+}
+
+void GenCrossIndices(){;
+  //strips 1
+  for(int i=0;i<tangVec.size();i++){
+    crossIndices.push_back(i*2);
+    crossIndices.push_back(i*2+1);
+  }
+  //strip 2
+  for(int i=tangVec.size()-1;i>=0;i--){
+    crossIndices.push_back(i*4+1);
+    crossIndices.push_back(i*4+2);
+  }
+  //strip 3
+  for(int i=0;i<tangVec.size();i++){
+    crossIndices.push_back(i*4+2);
+    crossIndices.push_back(i*4+3);
+  }
+  //strip 4
+  for(int i=tangVec.size()-1;i>=0;i--){
+    crossIndices.push_back(i*4+3);
+    crossIndices.push_back(i*4);
   }
 }
 
@@ -634,6 +732,9 @@ void bindProgram(){
     GLuint loc = glGetAttribLocation(program, "position"); 
     glEnableVertexAttribArray(loc);
     glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
+    //GLuint loc2 = glGetAttribLocation(program, "color"); 
+    //glEnableVertexAttribArray(loc2);
+    //glVertexAttribPointer(loc2, 3, GL_FLOAT, GL_FALSE, 0,BUFFER_OFFSET(positions.size()*sizeof(GLfloat)));
 
 }
 
@@ -645,10 +746,33 @@ void GenSpineBuffer(){
   glGenBuffers(1, &vbo);
   glBindBuffer(GL_ARRAY_BUFFER, vbo);
   glBufferData(GL_ARRAY_BUFFER,positions.size()*sizeof(GLfloat),positions.data(),GL_STATIC_DRAW);
+  //glBufferData(GL_ARRAY_BUFFER,positions.size()*2*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  //glBufferSubData(GL_ARRAY_BUFFER,0,positions.size()*sizeof(GLfloat),positions.data());//upload position data
+  //glBufferSubData(GL_ARRAY_BUFFER,positions.size()*sizeof(GLfloat),positions.size()*sizeof(GLfloat),color.data());
 
   glGenBuffers(1,&ebo);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER,(positions.size()/3-1)*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
+  bindProgram();//bind vao
+  //unbind vao
+  glBindVertexArray(0);
+}
+
+void GenCrossBuffer(){
+  //create VAO
+  glGenVertexArrays(1,&vao_cross);
+  glBindVertexArray(vao_cross);
+  // Generate 1 vbo buffer to store all vertices information
+  glGenBuffers(1, &vbo_cross);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo_cross);
+  glBufferData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data(),GL_STATIC_DRAW);
+  //glBufferData(GL_ARRAY_BUFFER,crossVerticesPos.size()*2*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  //glBufferSubData(GL_ARRAY_BUFFER,0,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data());//upload position data
+  //glBufferSubData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),color_cross.size()*sizeof(GLfloat),color_cross.data());
+
+  glGenBuffers(1,&ebo_cross);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_cross);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER,crossIndices.size()*sizeof(GLuint),crossIndices.data(),GL_STATIC_DRAW);
   bindProgram();//bind vao
   //unbind vao
   glBindVertexArray(0);
@@ -811,7 +935,7 @@ void GenSkyBuffer(){
 
 void SkyTexInit(){
   glGenTextures(1,&skyTexHandle);
-  if(initTexture("../Texture/blue.jpg",skyTexHandle)!=0){
+  if(initTexture("../Texture/skyTex.jpg",skyTexHandle)!=0){
     printf("Error loading the texture image.\n");
     exit(EXIT_FAILURE);
   }
@@ -832,9 +956,13 @@ void initScene(int argc, char *argv[])
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   /////////////create spline///////////////////
   GenVerices(POSITION);
+  GenVerices(TANGENT);
+  GenCrossVertices();
   GenLineIndices();
+  GenCrossIndices();
   initProgram();
   GenSpineBuffer();
+  GenCrossBuffer();
   ///////////finish creating spline/////////////
 
 
@@ -853,8 +981,7 @@ void initScene(int argc, char *argv[])
   SkyTexInit();
 
   ////////moving camera/////////////////////
-  curPo_index=0;
-  GenVerices(TANGENT);
+  curPo_index=tangVec.size()/2;//start from the ground
 }
 
 int main(int argc, char *argv[])
