@@ -80,7 +80,7 @@ GLuint program;
 void bindProgram();
 glm::mat4 basisMatrix;
 glm::mat4 controlMatrix;
-glm::vec4 parameterVec;
+//glm::vec4 parameterVec;
 
 //cross vertices
 std::vector<GLfloat> crossVerticesPos_left;
@@ -588,34 +588,55 @@ void LoadControlMatrix(Point &p1,Point &p2,Point &p3,Point &p4 ){
   controlMatrix = glm::make_mat4(m);
 }
 
-void LoadParamter(float u){
+glm::vec4 LoadParamter(float u){
   float v[4]={pow(u,3),pow(u,2),u,1.0f};
-  parameterVec = glm::make_vec4(v);
+  return glm::make_vec4(v);
 }
 
-void LoadTangParamter(float u){
+glm::vec4 LoadTangParamter(float u){
   float v[4]={3*pow(u,2),2*u,1.0f,0.0f};
-  tangParameterVec = glm::make_vec4(v);
+  return glm::make_vec4(v);
 }
 
-void CalculateVertice(float step,GLuint mode){
-  for(float u=0;u<=1;u+=step){
-    if(mode==TANGENT){
-      LoadTangParamter(u);
-      glm::vec3 temp(controlMatrix*basisMatrix*tangParameterVec);
-      tangVec.push_back(temp/glm::length(temp));
-    }
-    else{
-      LoadParamter(u);
-      glm::vec3 temp(controlMatrix*basisMatrix*parameterVec);
+void SubDivide(GLfloat u0, GLfloat u1, GLfloat maxLength){
+  glm::vec4 v0=LoadParamter(u0);
+  glm::vec4 v1=LoadParamter(u1);
+  GLfloat uMid=(u0+u1)/2;
+  if(glm::distance(v0,v1)>maxLength){
+    SubDivide(u0,uMid,maxLength);
+    SubDivide(uMid,u1,maxLength);
+  }
+  else{
+      glm::vec3 temp(controlMatrix*basisMatrix*v1);
+
+      //calculate the vertices position
       positions.push_back(temp[0]);
       positions.push_back(temp[1]);
       positions.push_back(temp[2]);
-      color.push_back(0.5f);
-      color.push_back(0.5f);
-      color.push_back(0.5f);
-    }
+
+      //calculate the tangent line
+      glm::vec4 tangParameterVec=LoadTangParamter(u1);
+      glm::vec3 temp2(controlMatrix*basisMatrix*tangParameterVec);
+      tangVec.push_back(temp2/glm::length(temp2));
   }
+   
+}
+
+void CalculateVertice(GLfloat u0, GLfloat u1, GLfloat maxLength){
+
+  //first load the u0
+  glm::vec4 tangParameterVec=LoadTangParamter(u0);
+  glm::vec3 temp(controlMatrix*basisMatrix*tangParameterVec);
+  tangVec.push_back(temp/glm::length(temp));
+
+  glm::vec4 parameterVec=LoadParamter(u0);
+  glm::vec3 temp2(controlMatrix*basisMatrix*parameterVec);
+  positions.push_back(temp2[0]);
+  positions.push_back(temp2[1]);
+  positions.push_back(temp2[2]);
+
+  //then do the subdivide recursion
+  SubDivide(u0,u1,maxLength);
 }
 
 void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVerticesPos, GLuint mode){
@@ -648,7 +669,7 @@ void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVertices
   glm::vec3 v1=p0+length_regulizar*(b0+n0);
   glm::vec3 v2=p0+length_regulizar*(-b0+n0);
   glm::vec3 v3=p0+length_regulizar*(-b0-n0);
-  cout<<v0[0]-p0[0]<<" "<<v0[1]-p0[1]<<" "<<v0[2]-p0[2]<<" "<<v1[0]-p0[0]<<" "<<v1[1]-p0[1]<<" "<<v1[2]-p0[2]<<endl;
+
   crossVerticesPos.push_back(v0[0]);
   crossVerticesPos.push_back(v0[1]);
   crossVerticesPos.push_back(v0[2]);
@@ -663,12 +684,12 @@ void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVertices
   crossVerticesPos.push_back(v3[2]);
 }
 
-void GenVerices(GLuint mode){
+void GenVerices(){
   LoadBasisMatrix(0.5f);
   int numOfInterval=splines[0].numControlPoints-3;
   for(int i=0;i<numOfInterval;i++){
     LoadControlMatrix(splines[0].points[i],splines[0].points[i+1],splines[0].points[i+2],splines[0].points[i+3]);
-    CalculateVertice(0.001f,mode);
+    CalculateVertice(0.0f, 1.0f, 0.001f);
   }
 }
 
@@ -684,7 +705,6 @@ void GenLineIndices(){
   int numOfLines=positions.size()/3-1;
   indices_lines= new GLuint[numOfLines*2];
   for(int i=0;i<numOfLines;i++){
-    //cout<<count<<endl;
     indices_lines[count++]=i;
     indices_lines[count++]=i+1;
   }
@@ -952,8 +972,7 @@ void initScene(int argc, char *argv[])
   //clear the window
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   /////////////create spline///////////////////
-  GenVerices(POSITION);
-  GenVerices(TANGENT);
+  GenVerices();
   GenCrossVertices();
   GenLineIndices();
   GenCrossIndices();
