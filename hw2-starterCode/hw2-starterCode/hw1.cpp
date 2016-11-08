@@ -80,7 +80,6 @@ GLuint program;
 void bindProgram();
 glm::mat4 basisMatrix;
 glm::mat4 controlMatrix;
-//glm::vec4 parameterVec;
 
 //cross vertices
 std::vector<GLfloat> crossVerticesPos_left;
@@ -104,6 +103,12 @@ const GLuint POSITION=0;
 const GLuint TANGENT=1;
 const glm::vec3 V_DOWN(0,-1,0);//people upside down
 const glm::vec3 V_UP(0,1,0);//people not upside down
+GLuint countStep;
+GLfloat timeStep=0.0001f;
+const GLfloat HMAX=42.5f;
+const GLfloat g=9.8f;
+typedef enum { REAL, SUBDIVIDE } MOVE_MODE;
+MOVE_MODE moveMode = REAL;
 
 //ground
 GLuint vao_groundTex;
@@ -310,10 +315,6 @@ void saveScreenshot(const char * filename)
 }
 
 void renderSpline(){
-  pipelineProgram->Bind();//bind shader
-  glBindVertexArray(vao);//bind vao
-  glDrawElements(GL_LINES,(positions.size()/3-1)*2,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
-  glBindVertexArray(0);
   glBindVertexArray(vao_cross_left);
   glDrawElements(GL_TRIANGLE_STRIP,crossIndices.size(),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
   glBindVertexArray(0);
@@ -351,18 +352,18 @@ void SetLookAt(){
   GLfloat eyeZ=positions.at(curPo_index*3+2);
 
   glm::vec3 V;
-  if(eyeY>=0){
-    V=V_DOWN;
-  }
-  else{
-    V=V_UP;
-  }
+  V=V_DOWN;
   glm::vec3 center=tangVec.at(curPo_index);
+  if(center==V||center==-V){
+  	curPo_index+=countStep; 
+  	return;
+  }
   glm::vec3 up=glm::cross(center,V);
-  up=up/glm::length(up);
+  up=glm::abs(up/glm::length(up));
   up=glm::cross(up,center);
-  openGLMatrix->LookAt(eyeX, eyeY, eyeZ, center[0]+eyeX, center[1]+eyeY, center[2]+eyeZ, up[0], up[1], up[2]); 
-  curPo_index+=30; 
+  openGLMatrix->LookAt(eyeX+up[0]*0.1f, eyeY+up[1]*0.1f, eyeZ+up[2]*0.1f, center[0]+eyeX, center[1]+eyeY, center[2]+eyeZ, up[0], up[1], up[2]);  
+  //plus up*0.1 because in reality peopel in th cart is a little higher than rail
+  curPo_index+=countStep; 
   if(curPo_index>=positions.size()/3){
     curPo_index=0;
   }
@@ -373,8 +374,8 @@ void doTransform()
   //Calculate the transform matrix and store it into m_view
   openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
   openGLMatrix->LoadIdentity();
-  //SetLookAt(); 
-  openGLMatrix->LookAt(0.0f, 0.0f, 2.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
+  SetLookAt(); 
+  //openGLMatrix->LookAt(0.0f, 1.0f, 1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
   openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
   openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
   openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
@@ -392,10 +393,12 @@ void doTransform()
   openGLMatrix->GetMatrix(m_perspective);
 
   //upload the transformation to shader
+  pipelineProgram->Bind();
   pipelineProgram->SetModelViewMatrix(m_view);
   pipelineProgram->SetProjectionMatrix(m_perspective);
-  //texPipeline->SetModelViewMatrix(m_view);
-  //texPipeline->SetProjectionMatrix(m_perspective);
+  texPipeline->Bind();
+  texPipeline->SetModelViewMatrix(m_view);
+  texPipeline->SetProjectionMatrix(m_perspective);
 }
 
 void displayFunc()
@@ -405,17 +408,13 @@ void displayFunc()
 
   //clear buffer
   glClear(GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT);
-  glDepthMask(GL_FALSE);
+  glDepthMask(GL_TRUE);
   glBindVertexArray(0);
 
-  //doTransform();
-  //renderSky();
-
   doTransform();
+  renderSky();
   renderSpline();
-
-  //doTransform();
-  //renderGround();
+  renderGround();
 
 
   glutSwapBuffers();
@@ -559,7 +558,7 @@ void keyboardFunc(unsigned char key, int x, int y)
     break;
 
     case ' ':
-      cout << "You pressed the spacebar." << endl;
+      cout << "You pressed the spacebar. Switch Move Mode" << endl;
     break;
 
     case 'x':
@@ -622,7 +621,28 @@ void SubDivide(GLfloat u0, GLfloat u1, GLfloat maxLength){
    
 }
 
-void CalculateVertice(GLfloat u0, GLfloat u1, GLfloat maxLength){
+GLfloat RealGravity(GLfloat u0, GLfloat u1){
+	GLfloat new_u=u0;
+	while(new_u<=u1){
+		glm::vec4 tangParameterVec=LoadTangParamter(new_u);
+  		glm::vec3 temp(controlMatrix*basisMatrix*tangParameterVec);
+  		tangVec.push_back(temp/glm::length(temp));
+
+		glm::vec4 v1=LoadParamter(new_u);
+		glm::vec3 temp2(controlMatrix*basisMatrix*v1);
+      	positions.push_back(temp2[0]);
+      	positions.push_back(temp2[1]);
+      	positions.push_back(temp2[2]);		
+		new_u=new_u+timeStep*pow(2*g*(HMAX-temp2[1]),0.5f)/glm::length(temp);
+	}
+	return new_u-u1;
+}
+
+GLfloat CalculateVertice(GLfloat u0, GLfloat u1, GLfloat maxLength, GLuint mode){
+
+  if(mode==REAL){
+  	return RealGravity(u0,u1);
+  }
 
   //first load the u0
   glm::vec4 tangParameterVec=LoadTangParamter(u0);
@@ -637,6 +657,8 @@ void CalculateVertice(GLfloat u0, GLfloat u1, GLfloat maxLength){
 
   //then do the subdivide recursion
   SubDivide(u0,u1,maxLength);
+
+  return 0.0f;
 }
 
 void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVerticesPos, GLuint mode){
@@ -645,18 +667,14 @@ void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVertices
   GLfloat curPoZ=positions.at(splines_Index*3+2);
   glm::vec3 p0(curPoX,curPoY,curPoZ);
   glm::vec3 V;
-  if(curPoY>=0){
-    V=V_DOWN;
-  }
-  else{
-    V=V_UP;
-  }
+  V=V_DOWN;
   glm::vec3 t0=tangVec.at(splines_Index);
   glm::vec3 b0=glm::cross(t0,V);
   b0=b0/glm::length(b0);
   glm::vec3 n0=glm::cross(b0,t0);
   GLfloat railW=0.1f;
 
+  b0=glm::abs(b0);
   if(mode==LEFTRAIL){
     p0=p0-railW*b0;
   }
@@ -684,12 +702,13 @@ void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVertices
   crossVerticesPos.push_back(v3[2]);
 }
 
-void GenVerices(){
+void GenVerices(GLuint mode){
   LoadBasisMatrix(0.5f);
   int numOfInterval=splines[0].numControlPoints-3;
+  GLfloat prevU_more=0.0f;
   for(int i=0;i<numOfInterval;i++){
     LoadControlMatrix(splines[0].points[i],splines[0].points[i+1],splines[0].points[i+2],splines[0].points[i+3]);
-    CalculateVertice(0.0f, 1.0f, 0.001f);
+    prevU_more=CalculateVertice(prevU_more, 1.0f, 0.001f,mode);
   }
 }
 
@@ -700,21 +719,12 @@ void GenCrossVertices(){
   }
 }
 
-void GenLineIndices(){
-  int count=0;
-  int numOfLines=positions.size()/3-1;
-  indices_lines= new GLuint[numOfLines*2];
-  for(int i=0;i<numOfLines;i++){
-    indices_lines[count++]=i;
-    indices_lines[count++]=i+1;
-  }
-}
 
 void GenCrossIndices(){;
   //strips 1
   for(int i=0;i<tangVec.size();i++){
-    crossIndices.push_back(i*2);
-    crossIndices.push_back(i*2+1);
+    crossIndices.push_back(i*4);
+    crossIndices.push_back(i*4+1);
   }
   //strip 2
   for(int i=tangVec.size()-1;i>=0;i--){
@@ -755,25 +765,6 @@ void bindProgram(){
 
 }
 
-void GenSpineBuffer(){
-  //create VAO
-  glGenVertexArrays(1,&vao);
-  glBindVertexArray(vao);
-  // Generate 1 vbo buffer to store all vertices information
-  glGenBuffers(1, &vbo);
-  glBindBuffer(GL_ARRAY_BUFFER, vbo);
-  glBufferData(GL_ARRAY_BUFFER,positions.size()*sizeof(GLfloat),positions.data(),GL_STATIC_DRAW);
-  //glBufferData(GL_ARRAY_BUFFER,positions.size()*2*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
-  //glBufferSubData(GL_ARRAY_BUFFER,0,positions.size()*sizeof(GLfloat),positions.data());//upload position data
-  //glBufferSubData(GL_ARRAY_BUFFER,positions.size()*sizeof(GLfloat),positions.size()*sizeof(GLfloat),color.data());
-
-  glGenBuffers(1,&ebo);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER,(positions.size()/3-1)*2*sizeof(GLuint),indices_lines,GL_STATIC_DRAW);
-  bindProgram();//bind vao
-  //unbind vao
-  glBindVertexArray(0);
-}
 
 void GenCrossBuffer(GLuint& vao_cross,GLuint& vbo_cross,GLuint& ebo_cross, vector<GLfloat > crossVerticesPos){
   //create VAO
@@ -827,19 +818,19 @@ void BindTexProgram(){
 void GenGroundVetices(){
   //first triangle
   //(0,0,0)
-  groundPos.push_back(-50.0f);groundPos.push_back(-10.0f);groundPos.push_back(50.0f);
+  groundPos.push_back(-100.0f);groundPos.push_back(-10.0f);groundPos.push_back(100.0f);
   //(0,0,-100)
-  groundPos.push_back(50.0f);groundPos.push_back(-10.0f);groundPos.push_back(50.0f);
+  groundPos.push_back(100.0f);groundPos.push_back(-10.0f);groundPos.push_back(100.0f);
   //(0,10,0)
-  groundPos.push_back(-50.0f);groundPos.push_back(-10.0f);groundPos.push_back(-50.0f);
+  groundPos.push_back(-100.0f);groundPos.push_back(-10.0f);groundPos.push_back(-100.0f);
 
   //secondTriangle
   //(0,0,0)
-  groundPos.push_back(50.0f);groundPos.push_back(-10.0f);groundPos.push_back(50.0f);
+  groundPos.push_back(100.0f);groundPos.push_back(-10.0f);groundPos.push_back(100.0f);
   //(0,0,-100)
-  groundPos.push_back(-50.0f);groundPos.push_back(-10.0f);groundPos.push_back(-50.0f);
+  groundPos.push_back(-100.0f);groundPos.push_back(-10.0f);groundPos.push_back(-100.0f);
   //(100,0,-100)
-  groundPos.push_back(50.0f);groundPos.push_back(-10.0f);groundPos.push_back(-50.0f);
+  groundPos.push_back(100.0f);groundPos.push_back(-10.0f);groundPos.push_back(-100.0f);
 }
 
 void GenGroundUV(){
@@ -972,12 +963,10 @@ void initScene(int argc, char *argv[])
   //clear the window
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   /////////////create spline///////////////////
-  GenVerices();
+  GenVerices(moveMode);
   GenCrossVertices();
-  GenLineIndices();
   GenCrossIndices();
   initProgram();
-  GenSpineBuffer();
   GenCrossBuffer(vao_cross_left,vbo_cross_left,ebo_cross_left,crossVerticesPos_left);
   GenCrossBuffer(vao_cross_right,vbo_cross_right,ebo_cross_right,crossVerticesPos_right);
   ///////////finish creating spline/////////////
@@ -998,7 +987,8 @@ void initScene(int argc, char *argv[])
   SkyTexInit();
 
   ////////moving camera/////////////////////
-  curPo_index=tangVec.size()/2;//start from the ground
+  curPo_index=0;//start from the ground
+  countStep=15;
 }
 
 int main(int argc, char *argv[])
