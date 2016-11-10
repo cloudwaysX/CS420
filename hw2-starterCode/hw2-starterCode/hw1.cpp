@@ -123,14 +123,15 @@ GLuint vao_skyTex;
 GLuint vbo_skyTex;
 GLuint ebo_skyTex;
 vector<GLfloat> skyPos;
-vector<GLfloat> skyUVs;
 vector<GLuint> skyIndices;
 GLuint skyTexHandle;
 void BindSkyTexProgram();
 
 //for both sky and ground
-SecondPipelineProgram *texPipeline;
-GLuint texProgram;
+SecondPipelineProgram *tex2DPipeline;
+GLuint tex2DProgram;
+SecondPipelineProgram *tex3DPipeline;
+GLuint tex3DProgram;
 
 //Set some constant parameter for the window view
 const float fovy = 60;//the view angle is 45 degrees
@@ -219,6 +220,7 @@ int initTexture(const char * imageFilename, GLuint textureHandle)
   // read the texture image
   ImageIO img;
   ImageIO::fileFormatType imgFormat;
+  cout<<imageFilename<<endl;
   ImageIO::errorType err = img.load(imageFilename, &imgFormat);
 
   if (err != ImageIO::OK) 
@@ -291,7 +293,91 @@ int initTexture(const char * imageFilename, GLuint textureHandle)
   return 0;
 }
 
-void setTextureUnit(GLint unit){
+int initTextureCubeMap(string imageFoldername, GLuint textureHandle){
+  // bind the texture
+  glBindTexture(GL_TEXTURE_CUBE_MAP, textureHandle);
+
+  // read the texture image
+  string filename[6]={"/right.jpg","/left.jpg","/top.jpg","/bot.jpg","/back.jpg","/front.jpg"};
+  for(int i=0;i<6;i++){
+  	ImageIO img;
+  	ImageIO::fileFormatType imgFormat;
+  	string name=imageFoldername+filename[i];
+  	const char* theName =name.c_str();
+  	cout<<theName<<endl;
+  	ImageIO::errorType err = img.load(theName, &imgFormat);
+  	if (err != ImageIO::OK) 
+  	{
+    	printf("Loading texture from %s failed.\n", name);
+    	return -1;
+  	}
+
+  	// check that the number of bytes is a multiple of 4
+  	if (img.getWidth() * img.getBytesPerPixel() % 4) 
+  	{
+    	printf("Error (%s): The width*numChannels in the loaded image must be a multiple of 4.\n", name);
+    	return -1;
+  	}
+  	// allocate space for an array of pixels
+  	int width = img.getWidth();
+  	int height = img.getHeight();
+  	unsigned char * pixelsRGBA = new unsigned char[4 * width * height]; // we will use 3 bytes per pixel, i.e., RGBA
+
+  	// fill the pixelsRGBA array with the image pixels
+  	memset(pixelsRGBA, 0, 4 * width * height); // set all bytes to 0
+  	for (int h = 0; h < height; h++)
+    	for (int w = 0; w < width; w++) 
+    	{
+      		// assign some default byte values (for the case where img.getBytesPerPixel() < 4)
+      		pixelsRGBA[4 * (h * width + w) + 0] = 0; // red
+      		pixelsRGBA[4 * (h * width + w) + 1] = 0; // green
+      		pixelsRGBA[4 * (h * width + w) + 2] = 0; // blue
+      		pixelsRGBA[4 * (h * width + w) + 3] = 255; // alpha channel; fully opaque
+
+      		// set the RGBA channels, based on the loaded image
+      		int numChannels = img.getBytesPerPixel();
+      		for (int c = 0; c < numChannels; c++) // only set as many channels as are available in the loaded image; the rest get the default value
+        		pixelsRGBA[4 * (h * width + w) + c] = img.getPixel(w, h, c);
+    	}
+    // initialize the texture
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixelsRGBA);
+
+    // de-allocate the pixel array -- it is no longer needed
+  	delete [] pixelsRGBA;
+
+  }
+    // set the texture parameters
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+  // query support for anisotropic texture filtering
+  GLfloat fLargest;
+  glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest);
+  printf("Max available anisotropic samples: %f\n", fLargest);
+
+  // set anisotropic texture filtering
+  glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_ANISOTROPY_EXT, 0.5f * fLargest);
+
+  // query for any errors
+  GLenum errCode = glGetError();
+  if (errCode != 0) 
+  {
+    printf("Texture initialization error. Error code: %d.\n", errCode);
+    return -1;
+  }
+  
+
+  return 0;
+
+}
+
+
+
+
+void setTextureUnit(GLint unit, GLuint texProgram){
   glActiveTexture(unit);
 
   GLint h_textureImage=glGetUniformLocation(texProgram,"textureImage");
@@ -324,8 +410,8 @@ void renderSpline(){
 }
 
 void renderGround(){
-  texPipeline->Bind();
-  setTextureUnit(GL_TEXTURE0);
+  tex2DPipeline->Bind();
+  setTextureUnit(GL_TEXTURE0,tex2DProgram);
   glBindTexture(GL_TEXTURE_2D,groundTexHandle);
 
   glBindVertexArray(vao_groundTex);//bind vao
@@ -334,12 +420,13 @@ void renderGround(){
 }
 
 void renderSky(){
-  texPipeline->Bind();
-  setTextureUnit(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D,skyTexHandle);
+  tex3DPipeline->Bind();
+  setTextureUnit(GL_TEXTURE0,tex3DProgram);
+  glBindTexture(GL_TEXTURE_CUBE_MAP,skyTexHandle);
 
   glBindVertexArray(vao_skyTex);
-  glDrawElements(GL_TRIANGLES,36,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+  glDrawArrays(GL_TRIANGLES,0,36);
+  //glDrawElements(GL_TRIANGLES,36,GL_UNSIGNED_INT,BUFFER_OFFSET(0));
   glBindVertexArray(0);
 }
 
@@ -375,7 +462,7 @@ void doTransform()
   openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
   openGLMatrix->LoadIdentity();
   SetLookAt(); 
-  //openGLMatrix->LookAt(0.0f, 1.0f, 1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
+  //openGLMatrix->LookAt(0.0f, 1.0f, 2.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
   openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
   openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
   openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
@@ -396,9 +483,12 @@ void doTransform()
   pipelineProgram->Bind();
   pipelineProgram->SetModelViewMatrix(m_view);
   pipelineProgram->SetProjectionMatrix(m_perspective);
-  texPipeline->Bind();
-  texPipeline->SetModelViewMatrix(m_view);
-  texPipeline->SetProjectionMatrix(m_perspective);
+  tex2DPipeline->Bind();
+  tex2DPipeline->SetModelViewMatrix(m_view);
+  tex2DPipeline->SetProjectionMatrix(m_perspective);
+  tex3DPipeline->Bind();
+  tex3DPipeline->SetModelViewMatrix(m_view);
+  tex3DPipeline->SetProjectionMatrix(m_perspective);
 }
 
 void displayFunc()
@@ -700,6 +790,9 @@ void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVertices
   crossVerticesPos.push_back(v3[0]);
   crossVerticesPos.push_back(v3[1]);
   crossVerticesPos.push_back(v3[2]);
+
+
+  
 }
 
 void GenVerices(GLuint mode){
@@ -746,6 +839,7 @@ void GenCrossIndices(){;
 void initProgram(){
   //initiate the shader program
   pipelineProgram = new BasicPipelineProgram();
+  cout<<"a"<<endl;
   if(pipelineProgram->Init(shaderBasePath)!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
@@ -776,7 +870,7 @@ void GenCrossBuffer(GLuint& vao_cross,GLuint& vbo_cross,GLuint& ebo_cross, vecto
   glBufferData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data(),GL_STATIC_DRAW);
   //glBufferData(GL_ARRAY_BUFFER,crossVerticesPos.size()*2*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
   //glBufferSubData(GL_ARRAY_BUFFER,0,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data());//upload position data
-  //glBufferSubData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),color_cross.size()*sizeof(GLfloat),color_cross.data());
+  //glBufferSubData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data());
 
   glGenBuffers(1,&ebo_cross);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_cross);
@@ -792,22 +886,39 @@ void GenCrossBuffer(GLuint& vao_cross,GLuint& vbo_cross,GLuint& ebo_cross, vecto
 //////Generate Texture Program and bind it//////////
 void InitTexProgram(){
   // initialize shader pipeline program for textures
-  texPipeline = new SecondPipelineProgram();
-   if(texPipeline->Init(shaderBasePath)!=0){
+  tex2DPipeline = new SecondPipelineProgram();
+  if(tex2DPipeline->Init(shaderBasePath,0)!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
   }
-  texPipeline->Bind();
-  texProgram = texPipeline->GetProgramHandle();
+  tex3DPipeline = new SecondPipelineProgram();
+  if(tex3DPipeline->Init(shaderBasePath,1)!=0){
+    cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
+    exit(EXIT_FAILURE);
+  }
+  tex2DPipeline->Bind();
+  tex2DProgram = tex2DPipeline->GetProgramHandle();
+  tex3DPipeline->Bind();
+  tex3DProgram = tex3DPipeline->GetProgramHandle();
 }
 
-void BindTexProgram(){
-  GLuint loc = glGetAttribLocation(texProgram, "position"); 
+void Bind2DTexProgram(){
+  GLuint loc = glGetAttribLocation(tex2DProgram, "position"); 
   glEnableVertexAttribArray(loc);
   glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
-  GLuint loc2=glGetAttribLocation(texProgram,"texCoord");
+  GLuint loc2=glGetAttribLocation(tex2DProgram,"texCoord");
   glEnableVertexAttribArray(loc2);
   glVertexAttribPointer(loc2, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(groundPos.size()*sizeof(GLfloat)));
+
+}
+
+void Bind3DTexProgram(){
+  GLuint loc = glGetAttribLocation(tex3DProgram, "position"); 
+  glEnableVertexAttribArray(loc);
+  glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
+  GLuint loc2=glGetAttribLocation(tex3DProgram,"texCoord");
+  glEnableVertexAttribArray(loc2);
+  glVertexAttribPointer(loc2, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(skyPos.size()*sizeof(GLfloat)));
 
 }
 
@@ -818,19 +929,19 @@ void BindTexProgram(){
 void GenGroundVetices(){
   //first triangle
   //(0,0,0)
-  groundPos.push_back(-100.0f);groundPos.push_back(-10.0f);groundPos.push_back(100.0f);
+  groundPos.push_back(-25.0f);groundPos.push_back(-48.0f);groundPos.push_back(25.0f);
   //(0,0,-100)
-  groundPos.push_back(100.0f);groundPos.push_back(-10.0f);groundPos.push_back(100.0f);
+  groundPos.push_back(25.0f);groundPos.push_back(-48.0f);groundPos.push_back(25.0f);
   //(0,10,0)
-  groundPos.push_back(-100.0f);groundPos.push_back(-10.0f);groundPos.push_back(-100.0f);
+  groundPos.push_back(-25.0f);groundPos.push_back(-48.0f);groundPos.push_back(-25.0f);
 
   //secondTriangle
   //(0,0,0)
-  groundPos.push_back(100.0f);groundPos.push_back(-10.0f);groundPos.push_back(100.0f);
+  groundPos.push_back(25.0f);groundPos.push_back(-48.0f);groundPos.push_back(25.0f);
   //(0,0,-100)
-  groundPos.push_back(-100.0f);groundPos.push_back(-10.0f);groundPos.push_back(-100.0f);
+  groundPos.push_back(-25.0f);groundPos.push_back(-48.0f);groundPos.push_back(-25.0f);
   //(100,0,-100)
-  groundPos.push_back(100.0f);groundPos.push_back(-10.0f);groundPos.push_back(-100.0f);
+  groundPos.push_back(25.0f);groundPos.push_back(-48.0f);groundPos.push_back(-25.0f);
 }
 
 void GenGroundUV(){
@@ -862,8 +973,7 @@ void GenGroundBuffer(){
   glBufferData(GL_ARRAY_BUFFER,(groundPos.size()+groundUVs.size())*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
   glBufferSubData(GL_ARRAY_BUFFER,0,groundPos.size()*sizeof(GLfloat),groundPos.data());//upload position data
   glBufferSubData(GL_ARRAY_BUFFER,groundPos.size()*sizeof(GLfloat),groundUVs.size()*sizeof(GLfloat),groundUVs.data());//upload UV data*/
-
-  BindTexProgram();
+  Bind2DTexProgram();
 
   glBindVertexArray(0);
 }
@@ -881,7 +991,7 @@ void GroundTexInit(){
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 //////////////Create Skybox///////////////////
-void GenSkyVertices(){
+/*void GenSkyVertices(){
   skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49); 
   skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(-49);
   skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(49);
@@ -890,34 +1000,53 @@ void GenSkyVertices(){
   skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(-49);
   skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(49);
   skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(49);
+}*/
+
+void GenSkyVertices(){
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49); 
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(-49);
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49);
+
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(49);
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(-49);
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49); 
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49);
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(49);
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(49);
+
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(49);
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(49); 
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(49);
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(-49);
+
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(49);
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(49);
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(49); 
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(49);
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(49);
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(49);
+
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(-49);
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(49); 
+  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(49);
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(49);
+  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49);
+
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(-49);
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(49);
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(-49); 
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(-49);
+  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(49);
+  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(49);
+
 }
 
-void GenSkyIndices(){
-  skyIndices.push_back(0);skyIndices.push_back(1);skyIndices.push_back(2);
-  skyIndices.push_back(0);skyIndices.push_back(2);skyIndices.push_back(3);
-
-  skyIndices.push_back(0);skyIndices.push_back(3);skyIndices.push_back(4);
-  skyIndices.push_back(3);skyIndices.push_back(4);skyIndices.push_back(7);
-  skyIndices.push_back(1);skyIndices.push_back(2);skyIndices.push_back(5);
-  skyIndices.push_back(2);skyIndices.push_back(5);skyIndices.push_back(6);
-
-  skyIndices.push_back(3);skyIndices.push_back(2);skyIndices.push_back(6);
-  skyIndices.push_back(3);skyIndices.push_back(7);skyIndices.push_back(6);
-  skyIndices.push_back(0);skyIndices.push_back(1);skyIndices.push_back(5);
-  skyIndices.push_back(0);skyIndices.push_back(4);skyIndices.push_back(5);
-}
-
-//texture interpolation
-void GenSkyUV(){
-  skyUVs.push_back(0);skyUVs.push_back(1);//0
-  skyUVs.push_back(1);skyUVs.push_back(1);//1
-  skyUVs.push_back(1);skyUVs.push_back(0);//2
-  skyUVs.push_back(0);skyUVs.push_back(0);//3
-  skyUVs.push_back(0);skyUVs.push_back(0);//4
-  skyUVs.push_back(1);skyUVs.push_back(0);//5
-  skyUVs.push_back(1);skyUVs.push_back(0);//6
-  skyUVs.push_back(0);skyUVs.push_back(0);//7
-}
 
 void GenSkyBuffer(){
   //create VAO
@@ -928,23 +1057,22 @@ void GenSkyBuffer(){
   glGenBuffers(1, &vbo_skyTex);
   glBindBuffer(GL_ARRAY_BUFFER, vbo_skyTex);
   //glBufferData(GL_ARRAY_BUFFER,groundPos.size()*sizeof(GLfloat),groundPos.data(),GL_STATIC_DRAW);
-  glBufferData(GL_ARRAY_BUFFER,(skyPos.size()+skyUVs.size())*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER,skyPos.size()*2*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
   glBufferSubData(GL_ARRAY_BUFFER,0,skyPos.size()*sizeof(GLfloat),skyPos.data());//upload position data
-  glBufferSubData(GL_ARRAY_BUFFER,skyPos.size()*sizeof(GLfloat),skyUVs.size()*sizeof(GLfloat),skyUVs.data());//upload UV data*/
+  glBufferSubData(GL_ARRAY_BUFFER,skyPos.size()*sizeof(GLfloat),skyPos.size()*sizeof(GLfloat),skyPos.data());//upload UV data*/
 
-  glGenBuffers(1,&ebo_skyTex);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_skyTex);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER,36*sizeof(GLuint),skyIndices.data(),GL_STATIC_DRAW);
 
-  BindTexProgram();
+  Bind3DTexProgram();
 
   glBindVertexArray(0);
 }
 
 void SkyTexInit(){
   glGenTextures(1,&skyTexHandle);
-  if(initTexture("../Texture/skyTex.jpg",skyTexHandle)!=0){
+  if(initTextureCubeMap("../Texture/blue",skyTexHandle)!=0){
+  	cout<<"a"<<endl;
     printf("Error loading the texture image.\n");
+    cout<<"c"<<endl;
     exit(EXIT_FAILURE);
   }
 
@@ -981,8 +1109,6 @@ void initScene(int argc, char *argv[])
 
   //////////create Sky/////////////////////////
   GenSkyVertices();
-  GenSkyUV();
-  GenSkyIndices();
   GenSkyBuffer();
   SkyTexInit();
 

@@ -4,13 +4,23 @@
 #include "secondPipelineProgram.h"
 using namespace std;
 
-int SecondPipelineProgram::Init(const char * shaderBasePath) 
+int SecondPipelineProgram::Init(const char * shaderBasePath, int mode) 
 {
-  if (BuildShadersFromFiles(shaderBasePath, "texture.vertexShader.glsl", "texture.fragmentShader.glsl") != 0)
-  {
-    cout << "Failed to build the pipeline program." << endl;
-    return 1;
+  if(mode==0){
+    if (BuildShadersFromFiles(shaderBasePath, "texture.vertexShader.glsl", "texture.fragmentShader.glsl") != 0)
+    {
+      cout << "Failed to build the pipeline program." << endl;
+      return 1;
+    }
   }
+  else{
+    if (BuildShadersFromFiles(shaderBasePath, "boxTexture.vertexShader.glsl", "boxTexture.fragmentShader.glsl") != 0)
+    {
+      cout << "Failed to build the pipeline program." << endl;
+      return 1;
+    }
+  }
+
 
   cout << "Successfully built the pipeline program." << endl;
   return 0;
