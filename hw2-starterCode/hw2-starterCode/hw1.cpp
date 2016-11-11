@@ -44,6 +44,8 @@
 
 using namespace std;
 
+void GenNewRailway();
+
 int mousePos[2]; // x,y coordinate of the mouse position
 
 int leftMouseButton = 0; // 1 if pressed, 0 if not 
@@ -80,6 +82,7 @@ GLuint program;
 void bindProgram();
 glm::mat4 basisMatrix;
 glm::mat4 controlMatrix;
+glm::vec3 offset(0,0,0);//when we have multiple splines, we want the next spline be continous to the previous one, so we do affine change
 
 //cross vertices
 std::vector<GLfloat> crossVerticesPos_left;
@@ -94,6 +97,16 @@ GLuint ebo_cross_right;
 vector<GLfloat> color_cross;
 const GLuint LEFTRAIL=0;
 const GLuint RIGHTRAIL=1;
+
+//Tshape
+std::vector<GLfloat> TshapePos;
+std::vector<GLuint> TshapeIndices;
+GLuint vbo_Tshape;
+GLuint vao_Tshape;
+GLuint ebo_Tshape;
+vector<GLfloat> color_Tshape;
+GLfloat interval=200;
+
 
 //moving camera
 GLuint curPo_index;
@@ -156,6 +169,8 @@ struct Spline
 
 // the spline array 
 Spline * splines;
+GLuint curSplineIndex=0;
+
 // total number of splines 
 int numSplines;
 
@@ -250,7 +265,7 @@ int initTexture(const char * imageFilename, GLuint textureHandle)
       pixelsRGBA[4 * (h * width + w) + 0] = 0; // red
       pixelsRGBA[4 * (h * width + w) + 1] = 0; // green
       pixelsRGBA[4 * (h * width + w) + 2] = 0; // blue
-      pixelsRGBA[4 * (h * width + w) + 3] = 255; // alpha channel; fully opaque
+      pixelsRGBA[4 * (h * width + w) + 3] = 575; // alpha channel; fully opaque
 
       // set the RGBA channels, based on the loaded image
       int numChannels = img.getBytesPerPixel();
@@ -332,7 +347,7 @@ int initTextureCubeMap(string imageFoldername, GLuint textureHandle){
       		pixelsRGBA[4 * (h * width + w) + 0] = 0; // red
       		pixelsRGBA[4 * (h * width + w) + 1] = 0; // green
       		pixelsRGBA[4 * (h * width + w) + 2] = 0; // blue
-      		pixelsRGBA[4 * (h * width + w) + 3] = 255; // alpha channel; fully opaque
+      		pixelsRGBA[4 * (h * width + w) + 3] = 575; // alpha channel; fully opaque
 
       		// set the RGBA channels, based on the loaded image
       		int numChannels = img.getBytesPerPixel();
@@ -375,8 +390,6 @@ int initTextureCubeMap(string imageFoldername, GLuint textureHandle){
 }
 
 
-
-
 void setTextureUnit(GLint unit, GLuint texProgram){
   glActiveTexture(unit);
 
@@ -401,11 +414,15 @@ void saveScreenshot(const char * filename)
 }
 
 void renderSpline(){
+  pipelineProgram->Bind();
   glBindVertexArray(vao_cross_left);
   glDrawElements(GL_TRIANGLE_STRIP,crossIndices.size(),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
   glBindVertexArray(0);
   glBindVertexArray(vao_cross_right);
   glDrawElements(GL_TRIANGLE_STRIP,crossIndices.size(),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
+  glBindVertexArray(0);
+  glBindVertexArray(vao_Tshape);
+  glDrawElements(GL_TRIANGLES,TshapeIndices.size(),GL_UNSIGNED_INT,BUFFER_OFFSET(0));
   glBindVertexArray(0);
 }
 
@@ -450,10 +467,9 @@ void SetLookAt(){
   up=glm::cross(up,center);
   openGLMatrix->LookAt(eyeX+up[0]*0.1f, eyeY+up[1]*0.1f, eyeZ+up[2]*0.1f, center[0]+eyeX, center[1]+eyeY, center[2]+eyeZ, up[0], up[1], up[2]);  
   //plus up*0.1 because in reality peopel in th cart is a little higher than rail
-  curPo_index+=countStep; 
-  if(curPo_index>=positions.size()/3){
-    curPo_index=0;
-  }
+
+  offset=glm::vec3(eyeX,eyeY,eyeZ);
+  //cout<<offset.x<<" "<<offset.y<<" "<<offset.z<<endl;
 }
 
 void doTransform()
@@ -462,7 +478,7 @@ void doTransform()
   openGLMatrix->SetMatrixMode(OpenGLMatrix::ModelView);
   openGLMatrix->LoadIdentity();
   SetLookAt(); 
-  //openGLMatrix->LookAt(0.0f, 1.0f, 2.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
+  //openGLMatrix->LookAt(0.0f, 0.0f, 2.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
   openGLMatrix->Translate(landTranslate[0],landTranslate[1],landTranslate[2]);
   openGLMatrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
   openGLMatrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
@@ -508,6 +524,21 @@ void displayFunc()
 
 
   glutSwapBuffers();
+
+  //update the camera postion
+  curPo_index+=countStep; 
+  if(curPo_index>=positions.size()/3){
+    curPo_index=0;
+    curSplineIndex=rand()%numSplines;
+    if(curSplineIndex>numSplines-1){
+    	curSplineIndex=0;
+    }
+    if(numSplines>1){
+    	GenNewRailway();
+    }
+    cout<<curSplineIndex<<endl;
+
+  }
 
 }
 void idleFunc()
@@ -711,7 +742,7 @@ void SubDivide(GLfloat u0, GLfloat u1, GLfloat maxLength){
    
 }
 
-GLfloat RealGravity(GLfloat u0, GLfloat u1){
+GLfloat RealGravity(GLfloat u0, GLfloat u1,bool offsetIsCalculated){
 	GLfloat new_u=u0;
 	while(new_u<=u1){
 		glm::vec4 tangParameterVec=LoadTangParamter(new_u);
@@ -720,6 +751,11 @@ GLfloat RealGravity(GLfloat u0, GLfloat u1){
 
 		glm::vec4 v1=LoadParamter(new_u);
 		glm::vec3 temp2(controlMatrix*basisMatrix*v1);
+		if(!offsetIsCalculated){
+  			offset=offset-temp2;
+  			offsetIsCalculated=true;
+  		}
+  		temp2=temp2+offset;
       	positions.push_back(temp2[0]);
       	positions.push_back(temp2[1]);
       	positions.push_back(temp2[2]);		
@@ -728,10 +764,10 @@ GLfloat RealGravity(GLfloat u0, GLfloat u1){
 	return new_u-u1;
 }
 
-GLfloat CalculateVertice(GLfloat u0, GLfloat u1, GLfloat maxLength, GLuint mode){
+GLfloat CalculateVertice(GLfloat u0, GLfloat u1, GLfloat maxLength, GLuint mode,bool offsetIsCalculated){
 
   if(mode==REAL){
-  	return RealGravity(u0,u1);
+  	return RealGravity(u0,u1,offsetIsCalculated);
   }
 
   //first load the u0
@@ -741,6 +777,11 @@ GLfloat CalculateVertice(GLfloat u0, GLfloat u1, GLfloat maxLength, GLuint mode)
 
   glm::vec4 parameterVec=LoadParamter(u0);
   glm::vec3 temp2(controlMatrix*basisMatrix*parameterVec);
+  if(!offsetIsCalculated){
+  	offset=offset-temp2;
+  	offsetIsCalculated=true;
+  }
+  temp2=temp2+offset;
   positions.push_back(temp2[0]);
   positions.push_back(temp2[1]);
   positions.push_back(temp2[2]);
@@ -772,7 +813,7 @@ void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVertices
     p0=p0+railW*b0;
   }
 
-  float length_regulizar=0.01f;
+  float length_regulizar=0.02f;
   glm::vec3 v0=p0+length_regulizar*(b0-n0);
   glm::vec3 v1=p0+length_regulizar*(b0+n0);
   glm::vec3 v2=p0+length_regulizar*(-b0+n0);
@@ -792,16 +833,72 @@ void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVertices
   crossVerticesPos.push_back(v3[2]);
 
 
-  
+  if(mode==LEFTRAIL){
+  	TshapePos.push_back(v0[0]);
+  	TshapePos.push_back(v0[1]);
+  	TshapePos.push_back(v0[2]);
+   	TshapePos.push_back(v1[0]);
+  	TshapePos.push_back(v1[1]);
+  	TshapePos.push_back(v1[2]);
+  }
+  else{
+  	TshapePos.push_back(v2[0]);
+  	TshapePos.push_back(v2[1]);
+  	TshapePos.push_back(v2[2]);
+   	TshapePos.push_back(v3[0]);
+  	TshapePos.push_back(v3[1]);
+  	TshapePos.push_back(v3[2]);  	
+  }
+
+}
+
+void CalculateColor(){
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.5f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.4f);
+  color_cross.push_back(0.5f);
+
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.5f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.5f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.5f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.4f);
+  color_Tshape.push_back(0.5f);
+
 }
 
 void GenVerices(GLuint mode){
+  bool offsetIsCalculated=false;
+
   LoadBasisMatrix(0.5f);
-  int numOfInterval=splines[0].numControlPoints-3;
+  int numOfInterval=splines[curSplineIndex].numControlPoints-3;
   GLfloat prevU_more=0.0f;
   for(int i=0;i<numOfInterval;i++){
-    LoadControlMatrix(splines[0].points[i],splines[0].points[i+1],splines[0].points[i+2],splines[0].points[i+3]);
-    prevU_more=CalculateVertice(prevU_more, 1.0f, 0.001f,mode);
+    LoadControlMatrix(splines[curSplineIndex].points[i],splines[curSplineIndex].points[i+1],splines[curSplineIndex].points[i+2],splines[curSplineIndex].points[i+3]);
+    prevU_more=CalculateVertice(prevU_more, 1.0f, 0.001f,mode,offsetIsCalculated);
+    offsetIsCalculated=true;
   }
 }
 
@@ -809,6 +906,7 @@ void GenCrossVertices(){
   for(GLuint i=0;i<tangVec.size();i++){
     CalculateCrossVertices(i,crossVerticesPos_left,LEFTRAIL);
     CalculateCrossVertices(i,crossVerticesPos_right,RIGHTRAIL);
+    CalculateColor();
   }
 }
 
@@ -834,12 +932,42 @@ void GenCrossIndices(){;
     crossIndices.push_back(i*4+3);
     crossIndices.push_back(i*4);
   }
+
+  for(int i=0;i<tangVec.size()-interval;i+=interval){
+    TshapeIndices.push_back(i*4+1);
+    TshapeIndices.push_back(i*4+2);
+    TshapeIndices.push_back(i*4+2+60);
+    TshapeIndices.push_back(i*4+1);
+    TshapeIndices.push_back(i*4+1+60);
+    TshapeIndices.push_back(i*4+2+60);
+
+    TshapeIndices.push_back(i*4);
+    TshapeIndices.push_back(i*4+3);
+    TshapeIndices.push_back(i*4+3+60);
+    TshapeIndices.push_back(i*4+0);
+    TshapeIndices.push_back(i*4+0+60);
+    TshapeIndices.push_back(i*4+3+60);
+
+    TshapeIndices.push_back(i*4+1);
+    TshapeIndices.push_back(i*4+0);
+    TshapeIndices.push_back(i*4+3);
+    TshapeIndices.push_back(i*4+1);
+    TshapeIndices.push_back(i*4+2);
+    TshapeIndices.push_back(i*4+3);
+
+    TshapeIndices.push_back(i*4+1+60);
+    TshapeIndices.push_back(i*4+0+60);
+    TshapeIndices.push_back(i*4+3+60);
+    TshapeIndices.push_back(i*4+1+60);
+    TshapeIndices.push_back(i*4+2+60);
+    TshapeIndices.push_back(i*4+3+60);
+  }
+
 }
 
 void initProgram(){
   //initiate the shader program
   pipelineProgram = new BasicPipelineProgram();
-  cout<<"a"<<endl;
   if(pipelineProgram->Init(shaderBasePath)!=0){
     cout << "Error finding the shaderBasePath " << shaderBasePath << "." << endl;
     exit(EXIT_FAILURE);
@@ -849,13 +977,13 @@ void initProgram(){
   program=pipelineProgram->GetProgramHandle();
 }
 
-void bindProgram(){
+void bindProgram(vector<GLfloat > crossVerticesPos){
     GLuint loc = glGetAttribLocation(program, "position"); 
     glEnableVertexAttribArray(loc);
     glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
-    //GLuint loc2 = glGetAttribLocation(program, "color"); 
-    //glEnableVertexAttribArray(loc2);
-    //glVertexAttribPointer(loc2, 3, GL_FLOAT, GL_FALSE, 0,BUFFER_OFFSET(positions.size()*sizeof(GLfloat)));
+    GLuint loc2 = glGetAttribLocation(program, "color"); 
+    glEnableVertexAttribArray(loc2);
+    glVertexAttribPointer(loc2, 4, GL_FLOAT, GL_FALSE, 0,BUFFER_OFFSET(crossVerticesPos.size()*sizeof(GLfloat)));
 
 }
 
@@ -867,17 +995,56 @@ void GenCrossBuffer(GLuint& vao_cross,GLuint& vbo_cross,GLuint& ebo_cross, vecto
   // Generate 1 vbo buffer to store all vertices information
   glGenBuffers(1, &vbo_cross);
   glBindBuffer(GL_ARRAY_BUFFER, vbo_cross);
-  glBufferData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data(),GL_STATIC_DRAW);
-  //glBufferData(GL_ARRAY_BUFFER,crossVerticesPos.size()*2*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
-  //glBufferSubData(GL_ARRAY_BUFFER,0,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data());//upload position data
-  //glBufferSubData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data());
+  //glBufferData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data(),GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER,(crossVerticesPos.size()+color_cross.size() )*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER,0,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data());//upload position data
+  glBufferSubData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),color_cross.size()*sizeof(GLfloat),color_cross.data());
 
   glGenBuffers(1,&ebo_cross);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_cross);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER,crossIndices.size()*sizeof(GLuint),crossIndices.data(),GL_STATIC_DRAW);
-  bindProgram();//bind vao
+  bindProgram(crossVerticesPos);//bind vao
   //unbind vao
   glBindVertexArray(0);
+
+  //create VAO
+  glGenVertexArrays(1,&vao_Tshape);
+  glBindVertexArray(vao_Tshape);
+  // Generate 1 vbo buffer to store all vertices information
+  glGenBuffers(1, &vbo_Tshape);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo_Tshape);
+  //glBufferData(GL_ARRAY_BUFFER,crossVerticesPos.size()*sizeof(GLfloat),crossVerticesPos.data(),GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER,(TshapePos.size()+color_Tshape.size() )*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER,0,TshapePos.size()*sizeof(GLfloat),TshapePos.data());//upload position data
+  glBufferSubData(GL_ARRAY_BUFFER,TshapePos.size()*sizeof(GLfloat),color_Tshape.size()*sizeof(GLfloat),color_Tshape.data());
+
+  glGenBuffers(1,&ebo_Tshape);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo_Tshape);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER,TshapeIndices.size()*sizeof(GLuint),TshapeIndices.data(),GL_STATIC_DRAW);
+  bindProgram(TshapePos);//bind vao
+  //unbind vao
+  glBindVertexArray(0);
+}
+
+void GenNewRailway(){
+  /////////////create spline///////////////////
+
+  positions.clear();
+  crossVerticesPos_left.clear();
+  crossVerticesPos_right.clear();
+  crossIndices.clear();
+  color_cross.clear();
+  tangVec.clear();
+  TshapeIndices.clear();
+  TshapePos.clear();
+  color_Tshape.clear();
+  
+  GenVerices(moveMode);
+  GenCrossVertices();
+  GenCrossIndices();
+  initProgram();
+  GenCrossBuffer(vao_cross_left,vbo_cross_left,ebo_cross_left,crossVerticesPos_left);
+  GenCrossBuffer(vao_cross_right,vbo_cross_right,ebo_cross_right,crossVerticesPos_right);	
 }
 //////////////////////////////////////////////////////////////////////
 
@@ -929,19 +1096,19 @@ void Bind3DTexProgram(){
 void GenGroundVetices(){
   //first triangle
   //(0,0,0)
-  groundPos.push_back(-25.0f);groundPos.push_back(-48.0f);groundPos.push_back(25.0f);
+  groundPos.push_back(-57.0f);groundPos.push_back(-48.0f);groundPos.push_back(57.0f);
   //(0,0,-100)
-  groundPos.push_back(25.0f);groundPos.push_back(-48.0f);groundPos.push_back(25.0f);
+  groundPos.push_back(57.0f);groundPos.push_back(-48.0f);groundPos.push_back(57.0f);
   //(0,10,0)
-  groundPos.push_back(-25.0f);groundPos.push_back(-48.0f);groundPos.push_back(-25.0f);
+  groundPos.push_back(-57.0f);groundPos.push_back(-48.0f);groundPos.push_back(-57.0f);
 
   //secondTriangle
   //(0,0,0)
-  groundPos.push_back(25.0f);groundPos.push_back(-48.0f);groundPos.push_back(25.0f);
+  groundPos.push_back(57.0f);groundPos.push_back(-48.0f);groundPos.push_back(57.0f);
   //(0,0,-100)
-  groundPos.push_back(-25.0f);groundPos.push_back(-48.0f);groundPos.push_back(-25.0f);
+  groundPos.push_back(-57.0f);groundPos.push_back(-48.0f);groundPos.push_back(-57.0f);
   //(100,0,-100)
-  groundPos.push_back(25.0f);groundPos.push_back(-48.0f);groundPos.push_back(-25.0f);
+  groundPos.push_back(57.0f);groundPos.push_back(-48.0f);groundPos.push_back(-57.0f);
 }
 
 void GenGroundUV(){
@@ -991,16 +1158,6 @@ void GroundTexInit(){
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 //////////////Create Skybox///////////////////
-/*void GenSkyVertices(){
-  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49); 
-  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(-49);
-  skyPos.push_back(49);skyPos.push_back(49);skyPos.push_back(49);
-  skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(49);
-  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(-49);
-  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(-49);
-  skyPos.push_back(49);skyPos.push_back(-49);skyPos.push_back(49);
-  skyPos.push_back(-49);skyPos.push_back(-49);skyPos.push_back(49);
-}*/
 
 void GenSkyVertices(){
   skyPos.push_back(-49);skyPos.push_back(49);skyPos.push_back(-49); 
@@ -1070,12 +1227,40 @@ void GenSkyBuffer(){
 void SkyTexInit(){
   glGenTextures(1,&skyTexHandle);
   if(initTextureCubeMap("../Texture/blue",skyTexHandle)!=0){
-  	cout<<"a"<<endl;
     printf("Error loading the texture image.\n");
-    cout<<"c"<<endl;
     exit(EXIT_FAILURE);
   }
 
+}
+
+//////////////////////////////////////////////////////////////////////////
+///////set the lighting//////////////////////
+void InitLight(){
+	GLfloat light_ambient[]={0.2,0.2,0.2,1.0};
+	GLfloat light_diffuse[]={1.0,1.0,1.0,1.0};
+	GLfloat light_specular[]={0.0,0.0,0.0,1.0};
+	GLfloat light_position[]={60.0,60.0,60.0,1.0};
+
+	glLightfv(GL_LIGHT0,GL_AMBIENT,light_ambient);
+	glLightfv(GL_LIGHT0,GL_DIFFUSE,light_diffuse);
+	glLightfv(GL_LIGHT0,GL_SPECULAR,light_specular);
+	glLightfv(GL_LIGHT0,GL_POSITION,light_position);
+}
+
+void InitMaterial(){
+	GLfloat mat_specular[]={0.0,0.0,0.0,1.0};
+	GLfloat mat_diffuse[]={1.0,1.0,1.0,1.0};
+	GLfloat mat_ambient[]={0.8,0.6,0.4,1.0};
+	GLfloat mat_shininess[]={100.0};
+
+	glMaterialfv(GL_FRONT,GL_SPECULAR,mat_specular);
+	glMaterialfv(GL_FRONT,GL_AMBIENT,mat_ambient);
+	glMaterialfv(GL_FRONT,GL_DIFFUSE,mat_diffuse);
+	glMaterialfv(GL_FRONT,GL_SHININESS,mat_shininess);
+
+	glShadeModel(GL_SMOOTH);
+	glEnable(GL_LIGHTING);
+	glEnable(GL_LIGHT0);
 }
 
 
@@ -1088,15 +1273,13 @@ void initScene(int argc, char *argv[])
   // Enable depth testing, then prioritize fragments closest to the camera
   glEnable(GL_DEPTH_TEST);
 
+  // Enable blending
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
   //clear the window
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-  /////////////create spline///////////////////
-  GenVerices(moveMode);
-  GenCrossVertices();
-  GenCrossIndices();
-  initProgram();
-  GenCrossBuffer(vao_cross_left,vbo_cross_left,ebo_cross_left,crossVerticesPos_left);
-  GenCrossBuffer(vao_cross_right,vbo_cross_right,ebo_cross_right,crossVerticesPos_right);
+  GenNewRailway();
   ///////////finish creating spline/////////////
 
 
@@ -1115,6 +1298,10 @@ void initScene(int argc, char *argv[])
   ////////moving camera/////////////////////
   curPo_index=0;//start from the ground
   countStep=15;
+
+  ///////light/////////////////
+  InitLight();
+  InitMaterial();
 }
 
 int main(int argc, char *argv[])
