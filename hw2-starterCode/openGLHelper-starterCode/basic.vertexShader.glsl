@@ -15,8 +15,8 @@ void main()
   
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0f);
 
-  //col = vec4(position[0], position[1],  position[2], 1.0);
   col = color;
+  //col=vec4(0.0,1,0.0,1.0);
   //col = vec4(position[2], 0,0, 1.0);
 
 

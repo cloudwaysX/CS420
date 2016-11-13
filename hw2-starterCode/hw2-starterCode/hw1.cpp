@@ -69,6 +69,7 @@ char windowTitle[512] = "CSCI 420 homework II";
 
 //global variables
 OpenGLMatrix *openGLMatrix;
+GLuint saveCount=0;
 
 //spline
 GLuint vbo;
@@ -105,7 +106,7 @@ GLuint vbo_Tshape;
 GLuint vao_Tshape;
 GLuint ebo_Tshape;
 vector<GLfloat> color_Tshape;
-GLfloat interval=200;
+GLfloat interval=0.4f;//the interval between two T shape should >=0.4f
 
 
 //moving camera
@@ -116,9 +117,10 @@ const GLuint POSITION=0;
 const GLuint TANGENT=1;
 const glm::vec3 V_DOWN(0,-1,0);//people upside down
 const glm::vec3 V_UP(0,1,0);//people not upside down
+const GLfloat INITIAL_V=0.0001f;
 GLuint countStep;
 GLfloat timeStep=0.0001f;
-const GLfloat HMAX=42.5f;
+GLfloat HMAX=0.0f;
 const GLfloat g=9.8f;
 typedef enum { REAL, SUBDIVIDE } MOVE_MODE;
 MOVE_MODE moveMode = REAL;
@@ -308,6 +310,7 @@ int initTexture(const char * imageFilename, GLuint textureHandle)
   return 0;
 }
 
+//Initiate the GL_TEXTURE_CUBE instead of GL_TEXTURE_2D
 int initTextureCubeMap(string imageFoldername, GLuint textureHandle){
   // bind the texture
   glBindTexture(GL_TEXTURE_CUBE_MAP, textureHandle);
@@ -449,7 +452,6 @@ void renderSky(){
 
 
 ///////////create moving Camera///////////////////////////////
-
 void SetLookAt(){
   GLfloat eyeX=positions.at(curPo_index*3);
   GLfloat eyeY=positions.at(curPo_index*3+1);
@@ -543,6 +545,13 @@ void displayFunc()
 }
 void idleFunc()
 {
+	
+	/*saveCount++;
+
+	char screenName[10];
+	sprintf(screenName, "%03d", saveCount/4);
+	saveScreenshot(("animation/"+std::string(screenName) + ".jpg").c_str());*/
+	
     glutPostRedisplay();
 }
 
@@ -718,6 +727,7 @@ glm::vec4 LoadTangParamter(float u){
   return glm::make_vec4(v);
 }
 
+//use subdivided recursion to generate the roller coaster
 void SubDivide(GLfloat u0, GLfloat u1, GLfloat maxLength){
   glm::vec4 v0=LoadParamter(u0);
   glm::vec4 v1=LoadParamter(u1);
@@ -742,6 +752,7 @@ void SubDivide(GLfloat u0, GLfloat u1, GLfloat maxLength){
    
 }
 
+//simulate the real gravity
 GLfloat RealGravity(GLfloat u0, GLfloat u1,bool offsetIsCalculated){
 	GLfloat new_u=u0;
 	while(new_u<=u1){
@@ -759,11 +770,12 @@ GLfloat RealGravity(GLfloat u0, GLfloat u1,bool offsetIsCalculated){
       	positions.push_back(temp2[0]);
       	positions.push_back(temp2[1]);
       	positions.push_back(temp2[2]);		
-		new_u=new_u+timeStep*pow(2*g*(HMAX-temp2[1]),0.5f)/glm::length(temp);
+		new_u=new_u+timeStep*pow(2*g*(HMAX-temp2[1]),0.5f)/glm::length(temp)+INITIAL_V;
 	}
 	return new_u-u1;
 }
 
+//calculate the vertices between two control point in either subdivide or real gravity mode
 GLfloat CalculateVertice(GLfloat u0, GLfloat u1, GLfloat maxLength, GLuint mode,bool offsetIsCalculated){
 
   if(mode==REAL){
@@ -792,6 +804,7 @@ GLfloat CalculateVertice(GLfloat u0, GLfloat u1, GLfloat maxLength, GLuint mode,
   return 0.0f;
 }
 
+//calcualte vertices of crossroad section
 void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVerticesPos, GLuint mode){
   GLfloat curPoX=positions.at(splines_Index*3);
   GLfloat curPoY=positions.at(splines_Index*3+1);
@@ -852,6 +865,7 @@ void CalculateCrossVertices(GLuint splines_Index, vector<GLfloat>& crossVertices
 
 }
 
+//calculate color for each vertices, since left rail and right rail is exactly the same so we only calcualte once
 void CalculateColor(){
   color_cross.push_back(0.4f);
   color_cross.push_back(0.4f);
@@ -889,12 +903,23 @@ void CalculateColor(){
 
 }
 
+//generate whole spline vertices
 void GenVerices(GLuint mode){
   bool offsetIsCalculated=false;
 
   LoadBasisMatrix(0.5f);
   int numOfInterval=splines[curSplineIndex].numControlPoints-3;
   GLfloat prevU_more=0.0f;
+
+  //calculate the maxium height first
+  for(int i=0;i<splines[curSplineIndex].numControlPoints;i++){
+    if(splines[curSplineIndex].points[i].y>HMAX){
+    	HMAX=splines[curSplineIndex].points[i].y;
+    }
+  }
+
+  cout<<HMAX<<endl;
+  //calculate each vertices
   for(int i=0;i<numOfInterval;i++){
     LoadControlMatrix(splines[curSplineIndex].points[i],splines[curSplineIndex].points[i+1],splines[curSplineIndex].points[i+2],splines[curSplineIndex].points[i+3]);
     prevU_more=CalculateVertice(prevU_more, 1.0f, 0.001f,mode,offsetIsCalculated);
@@ -902,6 +927,7 @@ void GenVerices(GLuint mode){
   }
 }
 
+//gnerate whole cross section vertices
 void GenCrossVertices(){
   for(GLuint i=0;i<tangVec.size();i++){
     CalculateCrossVertices(i,crossVerticesPos_left,LEFTRAIL);
@@ -910,7 +936,7 @@ void GenCrossVertices(){
   }
 }
 
-
+//generate indices for cross section vertices and T-shape vertices
 void GenCrossIndices(){;
   //strips 1
   for(int i=0;i<tangVec.size();i++){
@@ -933,7 +959,14 @@ void GenCrossIndices(){;
     crossIndices.push_back(i*4);
   }
 
-  for(int i=0;i<tangVec.size()-interval;i+=interval){
+  glm::vec3 prevPo(0,0,0);//record the previous position where the interval is big enough
+  for(int i=0;i<tangVec.size();i++){
+  	glm::vec3 temp1(positions.at(i*3),positions.at(i*3+1),positions.at(i*3+2));
+  	if(glm::distance(temp1,prevPo)<=interval){
+  		continue;
+  	}
+  	prevPo=temp1;
+
     TshapeIndices.push_back(i*4+1);
     TshapeIndices.push_back(i*4+2);
     TshapeIndices.push_back(i*4+2+60);
@@ -987,7 +1020,6 @@ void bindProgram(vector<GLfloat > crossVerticesPos){
 
 }
 
-
 void GenCrossBuffer(GLuint& vao_cross,GLuint& vbo_cross,GLuint& ebo_cross, vector<GLfloat > crossVerticesPos){
   //create VAO
   glGenVertexArrays(1,&vao_cross);
@@ -1027,8 +1059,8 @@ void GenCrossBuffer(GLuint& vao_cross,GLuint& vbo_cross,GLuint& ebo_cross, vecto
 }
 
 void GenNewRailway(){
-  /////////////create spline///////////////////
 
+  //clear the olde spline data
   positions.clear();
   crossVerticesPos_left.clear();
   crossVerticesPos_right.clear();
@@ -1095,19 +1127,13 @@ void Bind3DTexProgram(){
 
 void GenGroundVetices(){
   //first triangle
-  //(0,0,0)
   groundPos.push_back(-57.0f);groundPos.push_back(-48.0f);groundPos.push_back(57.0f);
-  //(0,0,-100)
   groundPos.push_back(57.0f);groundPos.push_back(-48.0f);groundPos.push_back(57.0f);
-  //(0,10,0)
   groundPos.push_back(-57.0f);groundPos.push_back(-48.0f);groundPos.push_back(-57.0f);
 
   //secondTriangle
-  //(0,0,0)
   groundPos.push_back(57.0f);groundPos.push_back(-48.0f);groundPos.push_back(57.0f);
-  //(0,0,-100)
   groundPos.push_back(-57.0f);groundPos.push_back(-48.0f);groundPos.push_back(-57.0f);
-  //(100,0,-100)
   groundPos.push_back(57.0f);groundPos.push_back(-48.0f);groundPos.push_back(-57.0f);
 }
 
@@ -1233,37 +1259,8 @@ void SkyTexInit(){
 
 }
 
-//////////////////////////////////////////////////////////////////////////
-///////set the lighting//////////////////////
-void InitLight(){
-	GLfloat light_ambient[]={0.2,0.2,0.2,1.0};
-	GLfloat light_diffuse[]={1.0,1.0,1.0,1.0};
-	GLfloat light_specular[]={0.0,0.0,0.0,1.0};
-	GLfloat light_position[]={60.0,60.0,60.0,1.0};
 
-	glLightfv(GL_LIGHT0,GL_AMBIENT,light_ambient);
-	glLightfv(GL_LIGHT0,GL_DIFFUSE,light_diffuse);
-	glLightfv(GL_LIGHT0,GL_SPECULAR,light_specular);
-	glLightfv(GL_LIGHT0,GL_POSITION,light_position);
-}
-
-void InitMaterial(){
-	GLfloat mat_specular[]={0.0,0.0,0.0,1.0};
-	GLfloat mat_diffuse[]={1.0,1.0,1.0,1.0};
-	GLfloat mat_ambient[]={0.8,0.6,0.4,1.0};
-	GLfloat mat_shininess[]={100.0};
-
-	glMaterialfv(GL_FRONT,GL_SPECULAR,mat_specular);
-	glMaterialfv(GL_FRONT,GL_AMBIENT,mat_ambient);
-	glMaterialfv(GL_FRONT,GL_DIFFUSE,mat_diffuse);
-	glMaterialfv(GL_FRONT,GL_SHININESS,mat_shininess);
-
-	glShadeModel(GL_SMOOTH);
-	glEnable(GL_LIGHTING);
-	glEnable(GL_LIGHT0);
-}
-
-
+///////////////////////////////////////////////////////////////////////////
 void initScene(int argc, char *argv[])
 {
 
@@ -1299,9 +1296,6 @@ void initScene(int argc, char *argv[])
   curPo_index=0;//start from the ground
   countStep=15;
 
-  ///////light/////////////////
-  InitLight();
-  InitMaterial();
 }
 
 int main(int argc, char *argv[])
