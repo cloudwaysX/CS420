@@ -109,6 +109,12 @@ int num_lights = 0;
 //three rendering types
 typedef enum {SHADOW, RAY} INTERSECT_TYPE;
 
+//Two shadow mode: soft shadow and hard shadow
+typedef enum {HARD, SOFT} SHADOW_TYPE;
+SHADOW_TYPE shadowType=SOFT;
+//in order to render softshadow we add the surrounding light as a cube with length 0.2f
+double shadowInterval = 0.13f;
+
 void plot_pixel_display(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
@@ -326,7 +332,51 @@ void draw_scene()
     	vec3 lColor(ambient_light[0],ambient_light[1],ambient_light[2]);
     	if(ifIntersect){   	
     		for(int i=0;i<num_lights;i++){
-    			lColor+=ComputeLlight(nearestT,lights[i]);
+    			if(shadowType==HARD){
+    				lColor+=ComputeLlight(nearestT,lights[i]);
+    			}
+    			else{
+    				Light surroundLight = lights[i];
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight.position[1]+=shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight.position[0]+=shadowInterval;
+    				surroundLight.position[2]+=shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight.position[2]-=2*shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight.position[0]-=2*shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight.position[2]+=2*shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+
+    				surroundLight = lights[i];
+    				surroundLight.position[1]-=shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight.position[0]+=shadowInterval;
+    				surroundLight.position[2]+=shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight.position[2]-=2*shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight.position[0]-=2*shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight.position[2]+=2*shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+
+    				surroundLight = lights[i];
+    				surroundLight.position[0]+=shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight = lights[i];
+    				surroundLight.position[0]-=shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight = lights[i];
+    				surroundLight.position[2]+=shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+    				surroundLight = lights[i];
+    				surroundLight.position[2]-=shadowInterval;
+    				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
+
+    			}
     		}
     	}
     	else{
