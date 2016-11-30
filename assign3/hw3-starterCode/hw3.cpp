@@ -296,26 +296,8 @@ void SphereInterpolation(Sphere sph, IntersectPoint &p){
 }
 
 
-
-//MODIFY THIS FUNCTION
-void draw_scene()
-{
-
-	double scale = tan(fov/2.0f/180.0f*M_PI);
-	double aspectR = WIDTH/HEIGHT; //aspect ratio
-	double camZ=-1.0f; 
-
-  //a simple test output
-  for(unsigned int x=0; x<WIDTH; x++)
-  {
-    glPointSize(2.0);  
-    glBegin(GL_POINTS);
-    for(unsigned int y=0; y<HEIGHT; y++)
-    {
-    	//Uniformly send out rays from the camera location
-    	double camX = scale*aspectR*(2.0f*x/(double)WIDTH-1);
-    	double camY = -scale*(2*(HEIGHT-y)/(double)HEIGHT-1);
-    	glm::vec3 rayDir(camX,camY,camZ);
+vec3 SINGLE_RAYTRACE(double camX, double camY, double camZ){
+	   	glm::vec3 rayDir(camX,camY,camZ);
     	rayDir=normalize(rayDir);
 
     	IntersectPoint nearestT;
@@ -382,6 +364,43 @@ void draw_scene()
     	else{
     		lColor=vec3(1.0f);
     	}
+
+    	return lColor;
+}
+
+
+//MODIFY THIS FUNCTION
+void draw_scene()
+{
+
+	double scale = tan(fov/2.0f/180.0f*M_PI);
+	double aspectR = WIDTH/HEIGHT; //aspect ratio
+	double camZ=-1.0f; 
+
+  //a simple test output
+  for(unsigned int x=0; x<WIDTH; x++)
+  {
+    glPointSize(2.0);  
+    glBegin(GL_POINTS);
+    for(unsigned int y=0; y<HEIGHT; y++)
+    {
+    	//Uniformly send out rays from the camera location
+    	//using Direct supersampling to do antialiasing
+    	double camX_tr = scale*aspectR*(2.0f*(x+0.25f)/(double)WIDTH-1); //top right grid
+    	double camY_tr = -scale*(2*(HEIGHT-(y+0.25f))/(double)HEIGHT-1); 
+    	double camX_br = scale*aspectR*(2.0f*(x+0.25f)/(double)WIDTH-1); //bottom right grid
+    	double camY_br = -scale*(2*(HEIGHT-(y-0.25f))/(double)HEIGHT-1);
+    	double camX_bl = scale*aspectR*(2.0f*(x-0.25f)/(double)WIDTH-1); //bottom left grid
+    	double camY_bl = -scale*(2*(HEIGHT-(y-0.25f))/(double)HEIGHT-1);
+    	double camX_tl = scale*aspectR*(2.0f*(x-0.25f)/(double)WIDTH-1); //top left grid
+    	double camY_tl = -scale*(2*(HEIGHT-(y+0.25f))/(double)HEIGHT-1); 
+
+    	vec3 lColor=SINGLE_RAYTRACE(camX_tr,camY_tr,camZ)/vec3(4.0); //top right grid
+    	lColor+=SINGLE_RAYTRACE(camX_br,camY_br,camZ)/vec3(4.0); //bottom right grid
+    	lColor+=SINGLE_RAYTRACE(camX_bl,camY_bl,camZ)/vec3(4.0); //bottom left grid
+    	lColor+=SINGLE_RAYTRACE(camX_tl,camY_tl,camZ)/vec3(4.0);//top left grid
+    	//vec3 lColor=SINGLE_RAYTRACE(camX,camY,camZ);
+ 
     	lColor.x=clamp(lColor.x,0.0f,1.0f);lColor.y=clamp(lColor.y,0.0f,1.0f);lColor.z=clamp(lColor.z,0.0f,1.0f);
     	plot_pixel(x, y, (int)255*lColor.x, (int)255*lColor.y, (int)255*lColor.z);
     }
