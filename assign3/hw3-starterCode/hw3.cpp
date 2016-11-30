@@ -129,13 +129,12 @@ vec3 ComputeLlight(IntersectPoint p,Light the_light){
 	IntersectPoint dummy;
 	dummy.t=distance;
 	for(int i=0;i<num_triangles && !ifShadow;i++){
+		vec3 hahah(p.position+L*vec3(distance));
 		ifShadow=TriangleIntersection(p.position,L,dummy, triangles[i], SHADOW);
-		//if(ifShadow) {std::cout<<p.position[0]<<" "<<p.position[1]<<std::endl;}
 		if(ifShadow) return vec3(0.0f); //if in shadow, no color
 	}
 	for(int i=0;i<num_spheres && !ifShadow;i++){
 		ifShadow=SphereIntersec(p.position,L,dummy, spheres[i], SHADOW);
-		//if(ifShadow) {std::cout<<p.position[0]<<" "<<p.position[1]<<std::endl;}
 		if(ifShadow) return vec3(0.0f); //if in shadow, no color
 	}
 
@@ -144,16 +143,9 @@ vec3 ComputeLlight(IntersectPoint p,Light the_light){
   V=normalize(V);
   vec3 R(-reflect(L,N));
 
-  //I = lightColor * (kd * (L dot N) + ks * (R dot V) ^ sh) 
   double LdotN=std::max(0.0f,dot(L,N));
   double RdotV=std::max(0.0f,dot(R,V));
   vec3 I=p.color_diffuse*vec3(LdotN)+p.color_specular*vec3(pow(RdotV,p.shininess));
-  //std::cout<<I.x<<" "<<I.y<<" "<<I.z<<std::endl;
- // vec3 I2=p.color_specular*vec3(pow(RdotV,p.shininess));
-  //std::cout<<I2.x<<" "<<I2.y<<" "<<I2.z<<std::endl;
-  //std::cout<<LdotN<<" "<<RdotV<<std::endl;
-  //std::cout<<"color_diffuse"<<p.color_diffuse.x<<" "<<p.color_diffuse.y<<" "<<p.color_diffuse.z<<" "<<std::endl;
-  //std::cout<<"color_specular"<<p.color_specular.x<<" "<<p.color_specular.y<<" "<<p.color_specular.z<<" "<<std::endl;
 
   I=vec3(the_light.color[0],the_light.color[1],the_light.color[2])*I;
   return I;
@@ -169,16 +161,44 @@ bool TriangleIntersection(vec3 origin,vec3 dir,IntersectPoint &p, Triangle tri, 
 	//calculate a,b,c,d for ax+by+cz+d=0 
 	glm::vec3 norm = glm::cross(vertex1-vertex0,vertex2-vertex0);
 	double d=-glm::dot(norm,vertex0);
-	//std::cout<<"0"<<std::endl;
 
 	//decide if the ray is intersect with the plane
 	if(abs(glm::dot(norm,dir))<EPSILON)return false;//if ray is parrallel to the plane, return no intersect
 	double temp_t=-(dot(norm,origin)+d)/(double)glm::dot(norm,dir);
-	if(temp_t<EPSILON)return false;//intersection is behine the view plane or is behind the nearest t
-	if(temp_t>p.t+EPSILON && p.t!=-1) return false; //if intersection is far away from the already existing intersection
-
+	if(temp_t<EPSILON)return false;//intersection is behine the origin
+	if(temp_t>p.t-EPSILON && p.t!=-1) return false; //if intersection is far away from the already existing intersection
+	if(mode==SHADOW){ // in case intersect with something behine the camera
+		vec3 cur_P(origin+dir*vec3(temp_t));
+		if(cur_P.z>-1- EPSILON){
+			return false;
+		}
+	}
 	//decide if the intersection point is inside the triangle
-	glm::vec3 intersectP(dir*vec3(temp_t)); //P
+	glm::vec3 intersectP(dir*vec3(temp_t)+origin); //P
+	
+	//Another method determine if the point is in the triangle here
+	/*glm::vec3 v01(vertex1 - vertex0); // v0=b-a
+  	glm::vec3 v02(vertex2 - vertex0); // v1=c-a 
+	glm::vec3 v0p(intersectP- vertex0); // v2=p-a
+	float d00 = dot(v01, v01);
+    float d01 = dot(v01, v02);
+    float d11 = dot(v02, v02);
+    float d20 = dot(v0p, v01);
+    float d21 = dot(v0p, v02);
+    float denom = d00 * d11 - d01 * d01;
+    double v = (d11 * d20 - d01 * d21) / denom;
+    double w = (d00 * d21 - d01 * d20) / denom;
+
+    if(v>= - EPSILON&&w>= -EPSILON&&v+w <1+ EPSILON){
+    	alpha=1-v-w;
+    	beta=v;
+    	gamma=w;
+    	if(mode==SHADOW){return true;}
+    }
+    else{
+    	return false;
+    }*/
+
 	//total area
 	glm::vec3 v12(vertex2 - vertex1);
 	glm::vec3 v10(vertex0 - vertex1);
@@ -188,22 +208,16 @@ bool TriangleIntersection(vec3 origin,vec3 dir,IntersectPoint &p, Triangle tri, 
 	glm::vec3 vp2(vertex2 -intersectP);
 	glm::vec3 area0=glm::cross(vp1,vp2);
 	double tempDir=glm::dot(totalArea,area0);
-	//std::cout<<"1"<<std::endl;
 	if(tempDir<0)return false;
-	//if(mode==SHADOW){std::cout<<"1:"<<tempDir<<std::endl;}
 	//area 1
 	glm::vec3 vp0(vertex0 -intersectP);
 	glm::vec3 area1=glm::cross(vp2,vp0);
 	tempDir=glm::dot(totalArea,area1);
-	//std::cout<<"2"<<std::endl;
 	if(tempDir<0)return false;
-	//if(mode==SHADOW){std::cout<<"2:"<<tempDir<<std::endl;}
 	//area 2
 	glm::vec3 area2=glm::cross(vp0,vp1);
 	tempDir=glm::dot(totalArea,area2);
-	//std::cout<<"3"<<std::endl;
 	if(tempDir<0)return false;
-	//if(mode==SHADOW){std::cout<<"3:"<<tempDir<<std::endl;}
 	if(mode==SHADOW) return true; // when determining the shadow, no need to compute
 
 	alpha=glm::length(area0)/glm::length(totalArea);
@@ -214,14 +228,11 @@ bool TriangleIntersection(vec3 origin,vec3 dir,IntersectPoint &p, Triangle tri, 
 
 	TriInterpolation(alpha,beta,gamma,tri,p);
 
-	//std::cout<<temp_t<<std::endl;
 	return true;
 }
 
 
 void TriInterpolation(double alpha,double beta,double gamma,Triangle tri, IntersectPoint &p){
-
-	//std::cout<<alpha<<" "<<beta<<" "<<gamma<<" "<<std::endl;
 
 	glm::vec3 n0(tri.v[0].normal[0]*alpha,tri.v[0].normal[1]*alpha,tri.v[0].normal[2]*alpha);
 	glm::vec3 n1(tri.v[1].normal[0]*beta,tri.v[1].normal[1]*beta,tri.v[1].normal[2]*beta);
@@ -232,13 +243,11 @@ void TriInterpolation(double alpha,double beta,double gamma,Triangle tri, Inters
 	glm::vec3 d1(tri.v[1].color_diffuse[0]*beta,tri.v[1].color_diffuse[1]*beta,tri.v[1].color_diffuse[2]*beta);
 	glm::vec3 d2(tri.v[2].color_diffuse[0]*gamma,tri.v[2].color_diffuse[1]*gamma,tri.v[2].color_diffuse[2]*gamma);
 	p.color_diffuse =d0+d1+d2;
-	//std::cout<<"color diffuse:"<<p.color_diffuse[0]<<" "<<p.color_diffuse[1]<<" "<<p.color_diffuse[2]<<" "<<std::endl;
 
 	glm::vec3 s0(tri.v[0].color_specular[0]*alpha,tri.v[0].color_specular[1]*alpha,tri.v[0].color_specular[2]*alpha);
 	glm::vec3 s1(tri.v[1].color_specular[0]*beta,tri.v[1].color_specular[1]*beta,tri.v[1].color_specular[2]*beta);
 	glm::vec3 s2(tri.v[2].color_specular[0]*gamma,tri.v[2].color_specular[1]*gamma,tri.v[2].color_specular[2]*gamma);
 	p.color_specular =s0+s1+s2;
-	//std::cout<<"color_specular:"<<p.color_specular[0]<<" "<<p.color_specular[1]<<" "<<p.color_specular[2]<<" "<<std::endl;
 
 	p.shininess=tri.v[0].shininess*alpha+tri.v[1].shininess*beta+tri.v[2].shininess*gamma;
 
@@ -246,26 +255,16 @@ void TriInterpolation(double alpha,double beta,double gamma,Triangle tri, Inters
 
 bool SphereIntersec(vec3 origin,vec3 dir,IntersectPoint &p, Sphere sph,INTERSECT_TYPE mode){
 
-	//if(mode==SHADOW){std::cout<<"x:"<<origin.x<<"y:"<<origin.y<<"z:"<<origin.z<<std::endl;}
-	//if(mode==SHADOW){std::cout<<"intersect:"<<p.t<<std::endl;}
-
 	glm::vec3 center(sph.position[0],sph.position[1],sph.position[2]);
 	double b=2*(double)glm::dot(dir,origin-center);
 	double c=pow((double)glm::length(origin-center),2) - pow(sph.radius,2);
-	//std::cout<<"0"<<std::endl;
 	if(b*b-4*c<0)return false;
 	double delta=b*b-4*c;
 	double temp_t0=(-b-sqrt(delta))/2.0;
 	double temp_t1=(-b+sqrt(delta))/2.0;
-	//std::cout<<(temp_t0<temp_t1)<<std::endl;
-	//if(mode==SHADOW){std::cout<<"temp_t0:"<<temp_t0<<std::endl;}
-	//if(mode==SHADOW){std::cout<<"temp_t1:"<<temp_t1<<std::endl;}
 	if(temp_t1<EPSILON)return false;//intersection is behine the view plane or is behind the nearest t
-	//std::cout<<"2"<<std::endl;
 	if(temp_t0>p.t+EPSILON && p.t!=-1) return false; //if intersection is far away from the already existing intersection
-	//std::cout<<"3"<<std::endl;
 	if(temp_t0<EPSILON && (temp_t1>p.t+EPSILON && p.t!=-1)) return false;
-	//if(mode==SHADOW){std::cout<<"4"<<std::endl;}
 	if(mode==SHADOW) return true; // when determining the shadow, no need to compute
 	if(temp_t0>EPSILON){
 		p.t=temp_t0;
@@ -275,7 +274,6 @@ bool SphereIntersec(vec3 origin,vec3 dir,IntersectPoint &p, Sphere sph,INTERSECT
 		p.t=temp_t1;
 		p.position=dir*vec3(temp_t1);
 	}
-	//std::cout<<p.t<<std::endl;
 	SphereInterpolation(sph,p);
 
 	return true;
@@ -325,22 +323,17 @@ void draw_scene()
     		ifIntersect=SphereIntersec(vec3(0.0f),rayDir,nearestT, spheres[i], RAY) || ifIntersect;
     	}
 
-    	/*if(nearestT.t!=-1){
-    		std::cout<<nearestT.t<<std::endl;
-    		std::cout<<x<<" "<<y<<std::endl;
-    	}*/
     	vec3 lColor(ambient_light[0],ambient_light[1],ambient_light[2]);
     	if(ifIntersect){   	
     		for(int i=0;i<num_lights;i++){
     			lColor+=ComputeLlight(nearestT,lights[i]);
     		}
     	}
-    	//std::cout<<lColor.x<<" "<<lColor.y<<" "<<lColor.z<<std::endl;
+    	else{
+    		lColor=vec3(1.0f);
+    	}
     	lColor.x=clamp(lColor.x,0.0f,1.0f);lColor.y=clamp(lColor.y,0.0f,1.0f);lColor.z=clamp(lColor.z,0.0f,1.0f);
-    	//std::cout<<lColor.x<<" "<<lColor.y<<" "<<lColor.z<<std::endl;
     	plot_pixel(x, y, (int)255*lColor.x, (int)255*lColor.y, (int)255*lColor.z);
-
-      //plot_pixel(x, y, x % 256, y % 256, (x+y) % 256);
     }
     glEnd();
     glFlush();
@@ -547,4 +540,3 @@ int main(int argc, char ** argv)
   init();
   glutMainLoop();
 }
-
