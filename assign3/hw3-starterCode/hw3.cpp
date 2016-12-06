@@ -1,7 +1,7 @@
 /* **************************
  * CSCI 420
  * Assignment 3 Raytracer
- * Name: <Your name here>
+ * Name: <Yifang Chen>
  * *************************
 */
 
@@ -86,6 +86,7 @@ struct Light
   double color[3];
 };
 
+//the parameter of the intersect points
 struct IntersectPoint
 {
   //light parameter
@@ -111,9 +112,9 @@ typedef enum {SHADOW, RAY} INTERSECT_TYPE;
 
 //Two shadow mode: soft shadow and hard shadow
 typedef enum {HARD, SOFT} SHADOW_TYPE;
-SHADOW_TYPE shadowType=SOFT;
+SHADOW_TYPE shadowType=HARD;
 //in order to render softshadow we add the surrounding light as a cube with length 0.2f
-double shadowInterval = 0.13f;
+double shadowInterval = 0.2f;
 
 void plot_pixel_display(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b);
@@ -124,7 +125,7 @@ void TriInterpolation(double alpha,double beta,double gamma,Triangle tri, Inters
 bool SphereIntersec(vec3 origin,vec3 dir,IntersectPoint &p, Sphere sph,INTERSECT_TYPE mode);
 void SphereInterpolation(Sphere sph, IntersectPoint &p);
 
-
+//Given Intersect points and lights, return the color due to the lights
 vec3 ComputeLlight(IntersectPoint p,Light the_light){
   vec3 N=p.normal;
   vec3 L(the_light.position[0]-p.position.x,the_light.position[1]-p.position.y,the_light.position[2]-p.position.z);
@@ -157,6 +158,7 @@ vec3 ComputeLlight(IntersectPoint p,Light the_light){
   return I;
 }
 
+//if intesect with triangle and compute store the parameter to the intersectPoint if intersect
 bool TriangleIntersection(vec3 origin,vec3 dir,IntersectPoint &p, Triangle tri, INTERSECT_TYPE mode){
 	double alpha,beta,gamma;
 
@@ -238,6 +240,7 @@ bool TriangleIntersection(vec3 origin,vec3 dir,IntersectPoint &p, Triangle tri, 
 }
 
 
+//Compute the Barycentric Cooridinates
 void TriInterpolation(double alpha,double beta,double gamma,Triangle tri, IntersectPoint &p){
 
 	glm::vec3 n0(tri.v[0].normal[0]*alpha,tri.v[0].normal[1]*alpha,tri.v[0].normal[2]*alpha);
@@ -259,6 +262,7 @@ void TriInterpolation(double alpha,double beta,double gamma,Triangle tri, Inters
 
 }
 
+//if intesect with sphere and compute store the parameter to the intersectPoint if intersect
 bool SphereIntersec(vec3 origin,vec3 dir,IntersectPoint &p, Sphere sph,INTERSECT_TYPE mode){
 
 	glm::vec3 center(sph.position[0],sph.position[1],sph.position[2]);
@@ -286,6 +290,7 @@ bool SphereIntersec(vec3 origin,vec3 dir,IntersectPoint &p, Sphere sph,INTERSECT
 
 }
 
+//compoute the intersect paramter for sphere
 void SphereInterpolation(Sphere sph, IntersectPoint &p){
 
 	glm::vec3 center(sph.position[0],sph.position[1],sph.position[2]);
@@ -296,6 +301,7 @@ void SphereInterpolation(Sphere sph, IntersectPoint &p){
 }
 
 
+//For each ray, compute its view color
 vec3 SINGLE_RAYTRACE(double camX, double camY, double camZ){
 	   	glm::vec3 rayDir(camX,camY,camZ);
     	rayDir=normalize(rayDir);
@@ -315,9 +321,11 @@ vec3 SINGLE_RAYTRACE(double camX, double camY, double camZ){
     	if(ifIntersect){   	
     		for(int i=0;i<num_lights;i++){
     			if(shadowType==HARD){
+    				//std::cout<<"rendering hardshadow"<<std::endl;
     				lColor+=ComputeLlight(nearestT,lights[i]);
     			}
     			else{
+    				//std::cout<<"rendering softshadow"<<std::endl;
     				Light surroundLight = lights[i];
     				lColor+=ComputeLlight(nearestT,surroundLight)/vec3(15.0);
     				surroundLight.position[1]+=shadowInterval;
@@ -400,6 +408,14 @@ void draw_scene()
     	lColor+=SINGLE_RAYTRACE(camX_bl,camY_bl,camZ)/vec3(4.0); //bottom left grid
     	lColor+=SINGLE_RAYTRACE(camX_tl,camY_tl,camZ)/vec3(4.0);//top left grid
     	//vec3 lColor=SINGLE_RAYTRACE(camX,camY,camZ);
+
+    	/*  	
+    	double camX = scale*aspectR*(2.0f*(x)/(double)WIDTH-1); 
+    	double camY = -scale*(2*(HEIGHT-(y))/(double)HEIGHT-1); 
+    	vec3 lColor=SINGLE_RAYTRACE(camX,camY,camZ);
+    	*/
+
+
  
     	lColor.x=clamp(lColor.x,0.0f,1.0f);lColor.y=clamp(lColor.y,0.0f,1.0f);lColor.z=clamp(lColor.z,0.0f,1.0f);
     	plot_pixel(x, y, (int)255*lColor.x, (int)255*lColor.y, (int)255*lColor.z);
@@ -584,21 +600,31 @@ void idle()
 
 int main(int argc, char ** argv)
 {
-  if ((argc < 2) || (argc > 3))
+  if ((argc < 3) || (argc > 4))
   {  
     printf ("Usage: %s <input scenefile> [output jpegname]\n", argv[0]);
     exit(0);
   }
-  if(argc == 3)
+  if(atoi(argv[1])==0){
+  	shadowType=HARD;
+  	std::cout<<"rendering hard shadow"<<std::endl;
+  }
+  else{
+  	shadowType=SOFT;
+  	std::cout<<"rendering soft shadow"<<std::endl;
+  }
+
+  if(argc == 4)
   {
     mode = MODE_JPEG;
-    filename = argv[2];
+    filename = argv[3];
+    std::cout<<filename<<std::endl;
   }
-  else if(argc == 2)
+  else if(argc == 3)
     mode = MODE_DISPLAY;
 
   glutInit(&argc,argv);
-  loadScene(argv[1]);
+  loadScene(argv[2]);
 
   glutInitDisplayMode(GLUT_RGBA | GLUT_SINGLE);
   glutInitWindowPosition(0,0);
